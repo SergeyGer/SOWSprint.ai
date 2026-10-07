@@ -421,6 +421,21 @@ def _subject_of(deliverable: str) -> str:
         if lowered.casefold().startswith(verb):
             lowered = lowered[len(verb) :].strip()
             break
+
+    # Removing the verb can orphan a connector or article ("Integrate with Salesforce"
+    # -> "with Salesforce"); strip them so the subject starts on a content word.
+    changed = True
+    while changed:
+        changed = False
+        for connector in _DANGLING_CONNECTORS:
+            if lowered.casefold().startswith(connector):
+                lowered = lowered[len(connector) :].strip()
+                changed = True
+        for article in ("a ", "an ", "the ", "our ", "their "):
+            if lowered.casefold().startswith(article):
+                lowered = lowered[len(article) :].strip()
+                changed = True
+
     words = lowered.split()
     subject = " ".join(words[:8]) if words else deliverable.strip()
     return subject
@@ -1286,6 +1301,11 @@ def critic_offline(
 # --------------------------------------------------------------------------------------
 # Tool planning
 # --------------------------------------------------------------------------------------
+
+
+#: Connectors left dangling once a leading verb is stripped from a deliverable
+#: ("Integrate with Salesforce" -> "with Salesforce" -> "Salesforce").
+_DANGLING_CONNECTORS = ("with ", "to ", "into ", "for ", "onto ", "against ", "across ")
 
 
 #: Words that carry no project-key value.

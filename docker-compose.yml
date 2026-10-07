@@ -82,6 +82,17 @@ services:
       SOWSPRINT_JIRA_API_TOKEN: "${SOWSPRINT_JIRA_API_TOKEN:-}"
       SOWSPRINT_NOTION_API_KEY: "${SOWSPRINT_NOTION_API_KEY:-}"
       SOWSPRINT_NOTION_PARENT_PAGE_ID: "${SOWSPRINT_NOTION_PARENT_PAGE_ID:-}"
+      # ---- voice scoping ----------------------------------------------------
+      SOWSPRINT_WHISPER_PROVIDER: "${SOWSPRINT_WHISPER_PROVIDER:-auto}"
+      SOWSPRINT_WHISPER_MODEL: "${SOWSPRINT_WHISPER_MODEL:-whisper-1}"
+      SOWSPRINT_GROQ_WHISPER_MODEL: "${SOWSPRINT_GROQ_WHISPER_MODEL:-whisper-large-v3-turbo}"
+      # Self-hosted OpenAI-compatible Whisper. When set, it takes precedence over the
+      # cloud providers so dictated requirements never leave the network.
+      SOWSPRINT_WHISPER_BASE_URL: "${SOWSPRINT_WHISPER_BASE_URL:-}"
+      SOWSPRINT_WHISPER_API_KEY: "${SOWSPRINT_WHISPER_API_KEY:-}"
+      # Must match [features.audio].sample_rate in .chainlit/config.toml.
+      SOWSPRINT_AUDIO_SAMPLE_RATE: "${SOWSPRINT_AUDIO_SAMPLE_RATE:-24000}"
+      SOWSPRINT_MAX_AUDIO_MB: "${SOWSPRINT_MAX_AUDIO_MB:-25}"
       # ---- guardrails -------------------------------------------------------
       SOWSPRINT_SESSION_BUDGET_USD: "${SOWSPRINT_SESSION_BUDGET_USD:-2.50}"
       SOWSPRINT_MAX_CRITIC_RETRIES: "${SOWSPRINT_MAX_CRITIC_RETRIES:-1}"

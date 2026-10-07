@@ -286,12 +286,30 @@ _OUT_OF_SCOPE_MARKERS = (
     "beyond the scope", "deferred", "backlog",
 )
 
-_CONSTRAINT_MARKERS = (
-    "must", "shall", "required", "mandatory", "cannot", "can't", "may not",
+#: Obligation markers: the sentence imposes a binding requirement on someone. Presence
+#: of one of these makes a sentence a constraint regardless of its subject matter.
+_OBLIGATION_MARKERS = (
+    "must", "shall", "required to", "is required", "are required", "mandatory",
+    "cannot", "can't", "may not", "not permitted", "prohibited", "no later than",
+    "in accordance with", "comply with", "compliance with", "adhere to",
+)
+
+#: Topic markers: the subject matter is compliance-adjacent. On their own these do NOT
+#: make a sentence a constraint — "Deliver GDPR-compliant audit logging" is a
+#: deliverable that happens to mention audit, while "the platform must pass an audit"
+#: is a constraint. Treating topic nouns as binding silently deletes real deliverables
+#: from the Statement of Work's scope section.
+_CONSTRAINT_TOPICS = (
     "within", "deadline", "budget", "compliance", "regulated", "sla",
     "uptime", "latency", "performance", "on-premise", "on-prem", "data residency",
-    "iso ", "soc 2", "audit",
+    "iso ", "soc 2", "audit", "residency",
 )
+
+
+def is_delivery_statement(unit: str) -> bool:
+    """True when a sentence proposes to build or supply something."""
+    lowered = unit.casefold().strip()
+    return any(lowered.startswith(verb) for verb in _DELIVERABLE_VERBS)
 
 _RISK_MARKERS = (
     "risk", "concern", "tight", "uncertain", "unknown", "dependency", "legacy",
@@ -300,6 +318,10 @@ _RISK_MARKERS = (
 
 _METRIC_PATTERNS = [
     r"\b\d+(?:\.\d+)?\s?%",
+    # Spoken metrics are transcribed as words, not symbols ("40 percent"), which is
+    # the common case for voice-scoped requirements. Miss this and a dictated brief
+    # is judged incomplete for a reason the customer cannot see.
+    r"\b\d+(?:\.\d+)?\s?(?:percent|per cent|pct)\b",
     r"\b\d+(?:\.\d+)?x\b",
     r"\b\d+\s?(?:hours?|days?|minutes?|seconds?)\b",
     r"\bsla\b",
@@ -603,10 +625,20 @@ def extract_out_of_scope(text: str) -> list[str]:
 
 
 def extract_constraints(text: str) -> list[str]:
-    """Lines carrying a binding constraint (must/shall/SLA/data residency…)."""
+    """Lines carrying a binding constraint (must/shall/SLA/data residency…).
+
+    A sentence qualifies when it states an obligation, or when it raises a
+    compliance-adjacent topic *without* proposing to build something. The second
+    clause is what keeps "Deliver GDPR-compliant audit logging" in the deliverables
+    list instead of misfiling it as a constraint.
+    """
     results = []
     for unit in split_sentences(text):
-        if _matches(unit, _CONSTRAINT_MARKERS) and not _matches(unit, _OUT_OF_SCOPE_MARKERS):
+        if _matches(unit, _OUT_OF_SCOPE_MARKERS):
+            continue
+        obligated = bool(_matches(unit, _OBLIGATION_MARKERS))
+        topical = bool(_matches(unit, _CONSTRAINT_TOPICS))
+        if obligated or (topical and not is_delivery_statement(unit)):
             results.append(_clean_fragment(unit))
     return dedupe(results)[:12]
 
@@ -655,28 +687,65 @@ def extract_integrations(text: str, *, known_tech: list[str] | None = None) -> l
     return dedupe(results)[:10]
 
 
+#: A commercial term (price, schedule, deadline) is never a deliverable, however it is
+#: phrased. Currency amounts and explicit "delivery within N weeks" constructions are
+#: the two signals that distinguish a term from a thing being built — "Build a
+#: dashboard within 6 weeks" is a deliverable, "Deliver within 10 weeks for a budget of
+#: EUR 90k" is not.
+_BUDGET_EXPRESSION_RE = re.compile(
+    r"(?:[€$£]|\b(?:EUR|USD|GBP|CHF|SEK|NOK|DKK|PLN)\b)\s?\d"
+    r"|\b\d[\d,\.]*\s?(?:k|m|million|thousand|bn)\b"
+    r"|\b(?:budget|spend|investment|invoice|fee[s]?)\b[^.]{0,24}?\b\d",
+    re.IGNORECASE,
+)
+
+_SCHEDULE_TERM_RE = re.compile(
+    r"\b(?:deliver(?:y|ed|s)?|timeline|duration|schedule|go[-\s]?live|deadline)"
+    r"\b[^.]{0,24}?\b(?:within|in|by|is|of|after)\b\s*(?:\d|the\b|end\b)",
+    re.IGNORECASE,
+)
+
+
+def is_commercial_term(fragment: str) -> bool:
+    """True when a sentence states a price or a schedule rather than a deliverable."""
+    return bool(
+        _BUDGET_EXPRESSION_RE.search(fragment) or _SCHEDULE_TERM_RE.search(fragment)
+    )
+
+
 def extract_deliverables(text: str) -> list[str]:
     """Identify what the vendor is contracted to produce.
 
     Priority order: explicit bullet lists (highest signal), then sentences carrying a
-    delivery verb. Constraint/metric/exclusion lines are filtered out first so the
-    deliverables list stays clean.
+    delivery verb. Constraint, metric, exclusion and commercial-term lines are filtered
+    out so the deliverables list stays clean — a schedule entry leaking into the
+    Statement of Work's scope section is a scope defect, not a cosmetic one.
     """
     excluded = set(
         extract_out_of_scope(text) + extract_constraints(text) + extract_success_metrics(text)
     )
+
+    def is_excluded(candidate: str) -> bool:
+        if is_commercial_term(candidate):
+            return True
+        if candidate in excluded:
+            return True
+        # The exclusion lists hold cleaned fragments; compare on a normalised prefix so
+        # a trailing period or capitalisation difference does not defeat the match.
+        prefix = candidate[:40].casefold().rstrip(" .")
+        return any(
+            entry and entry[:40].casefold().rstrip(" .") == prefix for entry in excluded
+        )
+
     candidates: list[str] = []
 
     for bullet in bullet_lines(text):
-        if bullet in excluded:
-            continue
-        if any(bullet.startswith(e[:40]) for e in excluded if e):
-            continue
-        candidates.append(bullet)
+        if not is_excluded(bullet):
+            candidates.append(bullet)
 
     for unit in split_sentences(text):
         lowered = unit.casefold()
-        if any(verb in lowered for verb in _DELIVERABLE_VERBS):
+        if any(verb in lowered for verb in _DELIVERABLE_VERBS) and not is_excluded(unit):
             candidates.append(unit)
 
     cleaned: list[str] = []
@@ -691,7 +760,7 @@ def extract_deliverables(text: str) -> list[str]:
         result = [
             _clean_fragment(u)
             for u in split_sentences(text)
-            if len(u) > 25
+            if len(u) > 25 and not is_commercial_term(u)
         ][:5]
     return result[:12]
 

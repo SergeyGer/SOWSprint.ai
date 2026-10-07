@@ -253,3 +253,79 @@ class TestFullAnalysis:
         assert first.deliverables == second.deliverables
         assert first.compliance_flags == second.compliance_flags
         assert first.signals == second.signals
+
+
+class TestCommercialTermsAreNotDeliverables:
+    """A schedule or price entry in the scope section is a contract defect.
+
+    The exclusion lists were originally applied only to bulleted lines, so any sentence
+    containing a delivery verb ("Deliver within 10 weeks for a budget of EUR 90k")
+    became a deliverable.
+    """
+
+    def test_budget_sentence_is_not_a_deliverable(self) -> None:
+        text = "Build a customer portal.\nDeliver within 10 weeks for a budget of EUR 90k."
+        deliverables = nlp.extract_deliverables(text)
+        assert any("customer portal" in item.lower() for item in deliverables)
+        assert not any("EUR 90k" in item for item in deliverables)
+
+    def test_delivery_window_sentence_is_not_a_deliverable(self) -> None:
+        text = "Build a dashboard.\nDelivery within 12 weeks."
+        assert not any("within 12 weeks" in item.lower() for item in nlp.extract_deliverables(text))
+
+    def test_deliverable_that_mentions_a_deadline_survives(self) -> None:
+        """"Build X within 6 weeks" is still a deliverable; only schedule-only lines go."""
+        text = "Build a reporting dashboard within 6 weeks."
+        deliverables = nlp.extract_deliverables(text)
+        assert deliverables
+        assert "dashboard" in deliverables[0].lower()
+
+    @pytest.mark.parametrize(
+        "fragment",
+        [
+            "Deliver within 10 weeks for a budget of EUR 90k",
+            "Budget: EUR 120k",
+            "Delivery within 12 weeks",
+            "Timeline is 3 months",
+            "The total spend is $250,000",
+        ],
+    )
+    def test_commercial_term_detector(self, fragment: str) -> None:
+        assert nlp.is_commercial_term(fragment) is True
+
+    @pytest.mark.parametrize(
+        "fragment",
+        [
+            "Build a React dashboard for 200 warehouse staff",
+            "Integrate with Salesforce for account data",
+            "Deliver GDPR-compliant audit logging",
+        ],
+    )
+    def test_deliverables_are_not_commercial_terms(self, fragment: str) -> None:
+        assert nlp.is_commercial_term(fragment) is False
+
+
+class TestConstraintVersusDeliverable:
+    """Topic nouns ("audit", "sla") must not by themselves make a sentence a constraint."""
+
+    def test_build_sentence_mentioning_audit_stays_a_deliverable(self) -> None:
+        text = "- Deliver GDPR-compliant audit logging for our DPO"
+        assert nlp.is_delivery_statement("Deliver GDPR-compliant audit logging for our DPO")
+        assert not nlp.extract_constraints(text)
+
+    def test_obligation_sentence_is_a_constraint(self) -> None:
+        text = "The platform must run on-premise and must comply with GDPR."
+        constraints = nlp.extract_constraints(text)
+        assert constraints
+        assert any("on-premise" in item for item in constraints)
+
+    def test_topical_non_delivery_sentence_is_a_constraint(self) -> None:
+        text = "The service level target for uptime is important to us."
+        assert nlp.extract_constraints(text)
+
+    def test_full_brief_separates_the_two_correctly(self, detailed_brief: str) -> None:
+        analysis = nlp.analyse(detailed_brief)
+        deliverables = " ".join(analysis.deliverables).lower()
+        constraints = " ".join(analysis.constraints).lower()
+        assert "audit logging" in deliverables
+        assert "audit logging" not in constraints

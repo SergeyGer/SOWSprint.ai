@@ -167,10 +167,30 @@ class Settings(BaseSettings):
     """When true, Jira/Notion calls are simulated and payloads are surfaced in the UI."""
 
     # ---------------------------------------------------------------- voice
-    whisper_provider: Literal["auto", "openai", "groq", "offline"] = "auto"
+    whisper_provider: Literal["auto", "openai", "groq", "local", "offline"] = "auto"
+    """``local`` targets a self-hosted OpenAI-compatible Whisper server."""
+
     whisper_model: str = "whisper-1"
     groq_whisper_model: str = "whisper-large-v3-turbo"
     max_audio_mb: float = 25.0
+
+    whisper_base_url: str | None = None
+    """Self-hosted Whisper endpoint, e.g. ``http://whisper:8000/v1``.
+
+    Works with any OpenAI-compatible speech-to-text server (faster-whisper-server,
+    whisper.cpp's ``server``, vLLM, Speaches). Keeping audio on-premise matters when
+    the requirement being dictated is itself confidential.
+    """
+
+    whisper_api_key: str | None = None
+    """Optional bearer token for the self-hosted endpoint; many need none."""
+
+    audio_sample_rate: int = 24000
+    """Sample rate of the raw PCM the Chainlit capture widget streams.
+
+    Must match ``[features.audio].sample_rate`` in ``.chainlit/config.toml``. The
+    bytes arriving on the socket are headerless mono PCM and are unusable without it.
+    """
 
     # ---------------------------------------------------------------- derived flags
     @field_validator("port")
@@ -234,8 +254,16 @@ class Settings(BaseSettings):
 
     @property
     def resolved_whisper_provider(self) -> str:
+        """Pick the speech-to-text backend.
+
+        A configured self-hosted endpoint wins over the cloud providers: an operator
+        who stood up local Whisper did so deliberately, usually for data-residency
+        reasons, and silently shipping audio to a third party would defeat that.
+        """
         if self.whisper_provider != "auto":
             return self.whisper_provider
+        if self.whisper_base_url:
+            return "local"
         if self.has_groq:
             return "groq"
         if self.has_openai:

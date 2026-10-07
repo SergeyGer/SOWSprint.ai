@@ -30,7 +30,7 @@ from sowsprint.llm import LLMError
 from sowsprint.observability import configure_logging, get_logger
 from sowsprint.rag.pipeline import get_pipeline
 from sowsprint.telemetry import render_dashboard
-from sowsprint.voice import transcribe_audio
+from sowsprint.voice import build_audio_file, transcribe_audio
 
 log = get_logger(__name__)
 _bootstrap_settings = get_settings()
@@ -847,19 +847,35 @@ async def on_audio_chunk(chunk: cl.AudioChunk) -> None:
 
 
 @cl.on_audio_end
-async def on_audio_end(elements: list[Any]) -> None:
-    """Persist the recording, transcribe it and feed the text into the graph."""
+async def on_audio_end() -> None:
+    """Persist the recording, transcribe it and feed the text into the graph.
+
+    Chainlit 2.x invokes this hook with **no arguments** (``socket.py``:
+    ``await config.code.on_audio_end()``) and its wrapper binds positional arguments to
+    parameter names, so any parameter here raises ``TypeError`` at runtime. The chunks
+    are therefore read from the user session rather than passed in.
+    """
     buffer: list[bytes] = cl.user_session.get("audio_chunks") or []
     if not buffer:
         await cl.Message(content="No audio was captured — please try again.").send()
         return
 
-    payload = b"".join(buffer)
-    suffix = ".wav"  # Chainlit's widget streams WAV frames at the configured rate
+    settings = _settings()
+    mime_type = str(cl.user_session.get("audio_mime") or "audio/wav")
+
+    # The capture widget streams headerless PCM; wrap it before anything tries to
+    # parse it as a media file.
+    payload, suffix = build_audio_file(
+        buffer, mime_type=mime_type, sample_rate=settings.audio_sample_rate
+    )
+    if not payload:
+        await cl.Message(content="No audio was captured — please try again.").send()
+        return
+
     target = Path(tempfile.gettempdir()) / f"sowsprint-voice-{uuid.uuid4().hex[:8]}{suffix}"
     target.write_bytes(payload)
+    cl.user_session.set("audio_chunks", [])
 
-    settings = _settings()
     provider = settings.resolved_whisper_provider
     await cl.Message(
         content=(

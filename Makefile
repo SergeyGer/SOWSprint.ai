@@ -141,6 +141,14 @@ health: ## Probe the running container's liveness and readiness
 verify-ui: ## Drive the running UI over its real socket.io protocol
 	$(VENV_PY) scripts/verify_ui.py --url http://127.0.0.1:$${SOWSPRINT_HOST_PORT:-8000}
 
+.PHONY: verify-voice
+verify-voice: ## Stream audio through the live voice hooks and assert a transcript lands
+	$(VENV_PY) scripts/verify_voice.py --url http://127.0.0.1:$${SOWSPRINT_HOST_PORT:-8000} --expect-transcript
+
+.PHONY: whisper-stub
+whisper-stub: ## Run the self-hosted Whisper test double on :9000
+	$(VENV_PY) scripts/whisper_stub.py --port 9000
+
 # --------------------------------------------------------------------------- misc
 .PHONY: lan-ip
 lan-ip: ## Print the LAN URL to open on an iPhone on the same Wi-Fi

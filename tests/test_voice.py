@@ -225,8 +225,11 @@ def test_transcribe_audio_with_openai_provider_and_no_key_makes_no_call(
 
     assert result.ok is False
     assert result.provider == "openai"
-    assert "No API key configured for provider 'openai'" in result.error
+    # The message must name the misconfigured provider and list every way to fix it,
+    # including the self-hosted endpoint.
+    assert "provider 'openai'" in result.error
     assert "SOWSPRINT_OPENAI_API_KEY" in result.error
+    assert "SOWSPRINT_WHISPER_BASE_URL" in result.error
     assert forbid_network == [], "no transcription request may be issued without a key"
 
 
@@ -243,7 +246,8 @@ def test_transcribe_audio_with_groq_provider_and_no_key_makes_no_call(
 
     assert result.ok is False
     assert result.provider == "groq"
-    assert "No API key configured for provider 'groq'" in result.error
+    assert "provider 'groq'" in result.error
+    assert "SOWSPRINT_GROQ_API_KEY" in result.error
     assert forbid_network == []
 
 

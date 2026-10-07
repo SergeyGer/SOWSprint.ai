@@ -127,6 +127,29 @@ SOWSPRINT_OLLAMA_BASE_URL=http://host.docker.internal:11434
 SOWSPRINT_TEI_RERANK_URL=http://reranker:80/rerank   # BGE via text-embeddings-inference
 ```
 
+**Self-hosted speech-to-text.** Any server speaking the OpenAI
+`/v1/audio/transcriptions` contract works — faster-whisper-server, whisper.cpp's
+`server`, Speaches, vLLM:
+
+```bash
+SOWSPRINT_WHISPER_BASE_URL=http://whisper:8000/v1
+SOWSPRINT_WHISPER_MODEL=Systran/faster-whisper-small
+SOWSPRINT_WHISPER_API_KEY=          # most self-hosted servers need none
+```
+
+Setting `SOWSPRINT_WHISPER_BASE_URL` makes the local endpoint **win over any cloud
+key**. That is deliberate: a dictated requirement is often the most confidential
+artefact in the whole flow, so an operator who stood up local Whisper must not have
+audio silently shipped to a third party.
+
+To exercise the voice path without a model or a GPU, run the bundled test double — it
+validates the upload exactly as a real server does, returning a 400 for headerless PCM:
+
+```bash
+make whisper-stub      # terminal 1: :9000
+make verify-voice      # terminal 2: streams synthesized PCM, asserts a SOW lands
+```
+
 **Embedding dimension is coupled to the collection.** Changing
 `SOWSPRINT_EMBEDDING_MODEL` or `SOWSPRINT_EMBEDDING_DIM` requires a rebuild:
 
@@ -208,8 +231,23 @@ except for `localhost`. Two options:
 * Terminate TLS in front of the app (see §7) and use `https://`.
 * Use Chrome on Android, or type the requirement.
 
-With no Whisper key the transcription step returns an explicit, actionable error rather
+With no provider the transcription step returns an explicit, actionable error rather
 than a silent failure — check the capability table at the top of the chat.
+
+If `make verify-voice` fails, work through these in order:
+
+| Symptom | Cause | Fix |
+| :-- | :-- | :-- |
+| `missing 1 required positional argument` | A handler parameter was added to `on_audio_end` | Chainlit 2.x calls it with **no arguments**; read state from `cl.user_session` instead |
+| Provider returns HTTP 400 "could not decode audio" | Headerless PCM uploaded as `.wav` | The capture widget streams bare samples; they must go through `build_audio_file()` |
+| Transcript is garbled or pitched | `SOWSPRINT_AUDIO_SAMPLE_RATE` ≠ `[features.audio].sample_rate` | Both are 24000 by default; change them together |
+| `osError` on the socket at ~25 MB | Payload above the provider limit | Lower `SOWSPRINT_MAX_AUDIO_MB`; recordings are ~2.9 MB per minute at 24 kHz mono |
+
+### The microphone works but the transcript is wrong
+
+Whisper handles accented speech and domain vocabulary better with a hint. Set the
+`prompt` form field (or prepend a sentence naming the domain) — `scripts/whisper_stub.py`
+shows the mechanism, and real servers honour the same parameter.
 
 ### Budget exhausted mid-run
 

@@ -152,13 +152,29 @@ PCI DSS, SOX, SEC disclosure, Delaware DGCL, and the commercial clauses in betwe
 
 `Chainlit` renders the whole experience; `public/custom.css` tightens it for iOS Safari
 (44 px touch targets, 16 px inputs to prevent zoom-on-focus, scrollable tables).
-Recordings are uploaded as-is — `.m4a` from iOS Safari, `.webm` from Chrome — because
-the Whisper API accepts them directly, which removes ffmpeg from the image.
 
-`Groq whisper-large-v3-turbo` is preferred when a Groq key exists: it is the difference
-between voice scoping feeling instant and feeling broken. With no key the pipeline
-degrades **honestly** — it reports that transcription is unavailable instead of
-pretending to have heard something.
+The capture widget streams **headerless 16-bit PCM**, so the pipeline wraps it in a
+proper RIFF/WAVE container before it goes anywhere — writing bare samples to
+`recording.wav` produces a file every speech-to-text API rejects with an opaque 400.
+Uploaded recordings (`.m4a` from iOS Safari, `.webm` from Chrome) are passed through
+untouched, which keeps ffmpeg out of the image.
+
+Three transcription targets, resolved in this order:
+
+| Target | When | Why |
+| :-- | :-- | :-- |
+| **Self-hosted** (`SOWSPRINT_WHISPER_BASE_URL`) | any OpenAI-compatible server | A dictated requirement is often the most confidential artefact in the flow; this keeps it on your network |
+| **Groq** `whisper-large-v3-turbo` | Groq key present | Lowest-latency hosted option — the difference between voice scoping feeling instant and broken |
+| **OpenAI** `whisper-1` | OpenAI key present | Sensible default |
+| *nothing configured* | — | Fails **honestly** with instructions, rather than pretending to have heard something |
+
+With no provider the pipeline reports exactly what is missing and scopes nothing. It
+never silently drops a requirement.
+
+`scripts/whisper_stub.py` is a test double for the self-hosted contract. It is
+deliberately not a yes-man: it validates the upload and returns a 400 for headerless
+PCM, which is how a real server behaves — making it a regression test for the capture
+pipeline rather than a rubber stamp.
 
 ### 4. AI financial observability
 
@@ -256,34 +272,56 @@ Everything below was executed against this codebase, not asserted.
 
 | Suite | Result |
 | :-- | :-- |
-| `tests/test_nlp.py` | 51 passed |
+| `tests/test_nlp.py` | 65 passed |
 | `tests/test_offline_engine.py` | 42 passed |
 | `tests/test_rag_chunking.py` | 31 passed |
 | `tests/test_rag_retrieval.py` | 48 passed |
 | `tests/test_agents_graph.py` | 39 passed |
+| `tests/test_voice_capture.py` | 21 passed |
+| `tests/test_tools.py` · `test_export.py` · `test_voice.py` · `test_config_models.py` | 105 passed |
+| **Total** | **353 passed** |
 | **Live UI harness** (`scripts/verify_ui.py`) | **12/12 checks passed** |
+| **Live voice harness** (`scripts/verify_voice.py`) | **8/8 checks passed** |
 
-The UI harness drives the *running Chainlit server over its real socket.io protocol* —
-the same wire format the browser uses — and asserts the full conversation: welcome →
-requirement → clarification → approval → provisioning → deliverables.
+Two harnesses drive the *running Chainlit server over its real socket.io protocol* —
+the same wire format the browser uses:
+
+* `verify_ui.py` asserts the full conversation: welcome → requirement → clarification →
+  approval → provisioning → deliverables.
+* `verify_voice.py` streams synthesized PCM through `audio_start` / `audio_chunk` /
+  `audio_end` and asserts the transcript reaches Triage and produces a Statement of Work.
+
+The voice harness exists because the unit tests passed while the feature was **broken in
+production**: Chainlit 2.x invokes `on_audio_end()` with no arguments, so a handler
+declaring a parameter raised `TypeError` on every microphone release. Only an
+end-to-end run catches that class of defect.
 
 Measured end-to-end on the EU sample brief:
 
 ```
 69 corpus entries → 141 chunks (70 EU / 71 US) indexed in 187 ms
 Triage    COMPLETE, confidence 98%, 3 compliance triggers
-Architect 4 milestones · 19 user stories · 62 story points
+Architect 4 milestones · 16 user stories · 52 story points
 Legal     14 clauses · 977 words · 8 evidence links
 Retrieval 140 fused → 12 passages, jurisdiction=EU filter enforced
 Critic    PASSED · score 1.00 · grounding 73% · 0 findings
-Tools     27 function calls, 0 failures (Jira + Notion, dry-run)
+Tools     23 function calls, 0 failures (Jira + Notion, dry-run)
 Export    7 artefacts incl. a 12 KB PDF
-Cost      $0.3057 simulated · 68,987 tokens · 5 calls · 11% of budget
+Cost      ~$0.28 simulated · ~64k tokens · 5 calls · 11% of budget
+```
+
+Voice path (against the bundled self-hosted test double):
+
+```
+96,000 bytes of headerless PCM streamed in 3 chunks
+-> wrapped in a RIFF/WAVE container, posted to the self-hosted endpoint
+-> transcript returned, 8/8 voice checks passed, SOW produced
 ```
 
 ```bash
 make test          # unit + integration + e2e
 make verify-ui     # drive the live UI over socket.io
+make verify-voice  # stream PCM through the audio hooks and assert a transcript lands
 make health        # container liveness + readiness (incl. jurisdiction filter probe)
 ```
 
@@ -303,6 +341,7 @@ for the annotated list. The ones that matter most:
 | `SOWSPRINT_MAX_CRITIC_RETRIES` | `1` | Bounds the quality-repair cycle |
 | `SOWSPRINT_DRY_RUN_INTEGRATIONS` | `true` | Validate Jira/Notion payloads without sending them |
 | `SOWSPRINT_HOST_PORT` | `8000` | Host-side port for Docker; container port stays 8000 |
+| `SOWSPRINT_WHISPER_BASE_URL` | *(unset)* | Self-hosted Whisper; when set it **wins** over cloud keys so audio never leaves your network |
 
 ---
 
