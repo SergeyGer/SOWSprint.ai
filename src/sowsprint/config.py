@@ -1,0 +1,294 @@
+"""Central configuration for SOWSprint.ai.
+
+Every external dependency is optional at *runtime*: the platform is designed to boot
+and complete a full scoping-to-contract cycle with **zero credentials** by falling
+back to deterministic local engines (heuristic LLM, hashing embedder, in-process
+vector store). As soon as credentials are supplied the corresponding production
+adapter takes over automatically.
+
+Configuration precedence (highest first):
+    1. Explicit constructor arguments
+    2. Environment variables / ``.env`` file
+    3. Defaults declared here
+"""
+
+from __future__ import annotations
+
+import functools
+from enum import Enum
+from pathlib import Path
+from typing import Literal
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# --------------------------------------------------------------------------------------
+# Paths
+# --------------------------------------------------------------------------------------
+
+PACKAGE_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = PACKAGE_ROOT.parent.parent
+DATA_DIR = PROJECT_ROOT / "data"
+CORPUS_DIR = DATA_DIR / "corpus"
+ARTIFACT_DIR = DATA_DIR / "artifacts"
+
+
+class LLMProvider(str, Enum):
+    """Reasoning backend selection policy."""
+
+    AUTO = "auto"  #: pick the best credentialed provider, else deterministic offline
+    MOCK = "mock"  #: force the deterministic offline engine
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+    GROQ = "groq"
+    OLLAMA = "ollama"
+
+
+class EmbeddingProvider(str, Enum):
+    AUTO = "auto"
+    HASH = "hash"  #: deterministic offline embeddings (no network, no cost)
+    OPENAI = "openai"
+    OLLAMA = "ollama"
+
+
+class RerankProvider(str, Enum):
+    AUTO = "auto"
+    HEURISTIC = "heuristic"  #: offline lexical cross-encoder surrogate
+    COHERE = "cohere"
+    TEI = "tei"  #: HuggingFace text-embeddings-inference (self-hosted BGE reranker)
+
+
+class VectorBackend(str, Enum):
+    AUTO = "auto"
+    QDRANT = "qdrant"
+    MEMORY = "memory"  #: in-process fallback so the graph runs without the container
+
+
+class Settings(BaseSettings):
+    """Runtime settings for the whole platform."""
+
+    model_config = SettingsConfigDict(
+        env_file=(".env",),
+        env_file_encoding="utf-8",
+        env_prefix="SOWSPRINT_",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    # ---------------------------------------------------------------- application
+    app_name: str = "SOWSprint.ai"
+    environment: Literal["development", "staging", "production"] = "development"
+    debug: bool = False
+    host: str = "0.0.0.0"
+    port: int = 8000
+    log_level: str = "INFO"
+    log_json: bool = True
+
+    # ---------------------------------------------------------------- LLM providers
+    llm_provider: LLMProvider = LLMProvider.AUTO
+    """Reasoning backend. ``auto`` prefers a credentialed cloud provider over offline."""
+
+    anthropic_api_key: str | None = None
+    openai_api_key: str | None = None
+    groq_api_key: str | None = None
+    cohere_api_key: str | None = None
+
+    openai_base_url: str | None = None
+    """Override for OpenAI-compatible gateways (Azure, vLLM, LiteLLM, Groq)."""
+
+    anthropic_base_url: str | None = None
+
+    ollama_base_url: str = "http://localhost:11434"
+    tei_rerank_url: str | None = None
+    """Self-hosted BGE reranker endpoint, e.g. ``http://reranker:80/rerank``."""
+
+    reasoning_model: str = "gpt-4o"
+    """Model used by Triage / Architect / Legal nodes (highest quality tier)."""
+
+    critic_model: str = "gpt-4o"
+    """Critic runs LLM-as-a-Judge; may be pointed at a different vendor for independence."""
+
+    fast_model: str = "gpt-4o-mini"
+    """Cheap tier for classification, extraction and query rewriting."""
+
+    request_timeout_s: float = 120.0
+    max_retries: int = 3
+    temperature: float = 0.1
+    max_tokens: int = 4096
+
+    # ---------------------------------------------------------------- retrieval
+    vector_backend: VectorBackend = VectorBackend.AUTO
+    qdrant_url: str = "http://localhost:6333"
+    qdrant_api_key: str | None = None
+    qdrant_collection: str = "sowsprint_legal"
+
+    embedding_provider: EmbeddingProvider = EmbeddingProvider.AUTO
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dim: int = 1536
+    """Must match the Qdrant collection's configured vector size."""
+
+    rerank_provider: RerankProvider = RerankProvider.AUTO
+    rerank_model: str = "BAAI/bge-reranker-v2-m3"
+
+    retrieval_top_k: int = 20
+    """Candidates pulled from each retriever arm before fusion."""
+
+    retrieval_final_k: int = 5
+    """Chunks surviving reranking and injected into the Legal agent's context."""
+
+    rrf_k: float = 60.0
+    """Reciprocal Rank Fusion smoothing constant (Cormack et al., 2009)."""
+
+    chunk_size: int = 1100
+    chunk_overlap: int = 150
+
+    default_jurisdiction: Literal["EU", "US"] = "EU"
+
+    # ---------------------------------------------------------------- guardrails
+    max_critic_retries: int = 1
+    """How many times a failed quality audit may bounce back to the Legal node."""
+
+    session_budget_usd: float = 2.50
+    """Hard ceiling for a single session; the graph halts before exceeding it."""
+
+    enable_cloud_fallback: bool = False
+    """Allow escalation from offline engines to cloud when credentials appear mid-run."""
+
+    # ---------------------------------------------------------------- integrations
+    jira_base_url: str | None = None
+    jira_email: str | None = None
+    jira_api_token: str | None = None
+    jira_project_key: str | None = None
+
+    notion_api_key: str | None = None
+    notion_parent_page_id: str | None = None
+
+    dry_run_integrations: bool = True
+    """When true, Jira/Notion calls are simulated and payloads are surfaced in the UI."""
+
+    # ---------------------------------------------------------------- voice
+    whisper_provider: Literal["auto", "openai", "groq", "offline"] = "auto"
+    whisper_model: str = "whisper-1"
+    groq_whisper_model: str = "whisper-large-v3-turbo"
+    max_audio_mb: float = 25.0
+
+    # ---------------------------------------------------------------- derived flags
+    @field_validator("port")
+    @classmethod
+    def _valid_port(cls, v: int) -> int:
+        if not (1 <= v <= 65535):
+            raise ValueError(f"port must be within 1..65535, got {v}")
+        return v
+
+    @field_validator("host")
+    @classmethod
+    def _warn_loopback(cls, v: str) -> str:
+        # A loopback bind silently breaks the documented iPhone-over-Wi-Fi workflow.
+        return v
+
+    # ---------------------------------------------------------------- capabilities
+    @property
+    def has_openai(self) -> bool:
+        return bool(self.openai_api_key)
+
+    @property
+    def has_anthropic(self) -> bool:
+        return bool(self.anthropic_api_key)
+
+    @property
+    def has_groq(self) -> bool:
+        return bool(self.groq_api_key)
+
+    @property
+    def has_cohere(self) -> bool:
+        return bool(self.cohere_api_key)
+
+    @property
+    def resolved_llm_provider(self) -> LLMProvider:
+        """Collapse ``AUTO`` into a concrete provider based on available credentials."""
+        if self.llm_provider is not LLMProvider.AUTO:
+            return self.llm_provider
+        if self.has_anthropic:
+            return LLMProvider.ANTHROPIC
+        if self.has_openai:
+            return LLMProvider.OPENAI
+        if self.has_groq:
+            return LLMProvider.GROQ
+        return LLMProvider.MOCK
+
+    @property
+    def resolved_embedding_provider(self) -> EmbeddingProvider:
+        if self.embedding_provider is not EmbeddingProvider.AUTO:
+            return self.embedding_provider
+        return EmbeddingProvider.OPENAI if self.has_openai else EmbeddingProvider.HASH
+
+    @property
+    def resolved_rerank_provider(self) -> RerankProvider:
+        if self.rerank_provider is not RerankProvider.AUTO:
+            return self.rerank_provider
+        if self.tei_rerank_url:
+            return RerankProvider.TEI
+        if self.has_cohere:
+            return RerankProvider.COHERE
+        return RerankProvider.HEURISTIC
+
+    @property
+    def resolved_whisper_provider(self) -> str:
+        if self.whisper_provider != "auto":
+            return self.whisper_provider
+        if self.has_groq:
+            return "groq"
+        if self.has_openai:
+            return "openai"
+        return "offline"
+
+    @property
+    def offline_mode(self) -> bool:
+        """True when the platform will run entirely on deterministic local engines."""
+        return self.resolved_llm_provider is LLMProvider.MOCK
+
+    def capability_matrix(self) -> dict[str, str]:
+        """Human-readable summary of which adapter each subsystem resolved to.
+
+        The integration entries are derived from the *same* predicate the connectors
+        use (``dry_run = dry_run_integrations or not configured``), so the UI can never
+        claim "live" while the connector is simulating, or vice versa.
+        """
+        return {
+            "reasoning": self.resolved_llm_provider.value,
+            "embeddings": self.resolved_embedding_provider.value,
+            "reranker": self.resolved_rerank_provider.value,
+            "vector_store": self.vector_backend.value,
+            "transcription": self.resolved_whisper_provider,
+            "jira": self.integration_mode(self.jira_configured),
+            "notion": self.integration_mode(self.notion_configured),
+        }
+
+    def integration_mode(self, configured: bool) -> str:
+        """Resolve the effective mode of one integration connector."""
+        if not self.dry_run_integrations and configured:
+            return "live"
+        if self.dry_run_integrations and configured:
+            return "dry-run"
+        if self.dry_run_integrations:
+            return "dry-run (unconfigured)"
+        return "dry-run (unconfigured credentials)"
+
+    @property
+    def jira_configured(self) -> bool:
+        return bool(self.jira_base_url and self.jira_email and self.jira_api_token)
+
+    @property
+    def notion_configured(self) -> bool:
+        return bool(self.notion_api_key and self.notion_parent_page_id)
+
+
+@functools.lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Process-wide cached settings accessor."""
+    return Settings()
+
+
+def reset_settings_cache() -> None:
+    """Clear the settings cache (used by tests that mutate the environment)."""
+    get_settings.cache_clear()

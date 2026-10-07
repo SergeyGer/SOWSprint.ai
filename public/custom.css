@@ -1,0 +1,138 @@
+/* ---------------------------------------------------------------------------
+ * SOWSprint.ai — mobile-first presentation layer
+ * ---------------------------------------------------------------------------
+ * The brief calls for a ChatGPT/Claude-like experience that is comfortable on an
+ * iPhone in Safari as well as on a desktop viewport. Chainlit's defaults are
+ * desktop-framed, so this sheet tightens spacing, enlarges touch targets and
+ * makes wide tables scrollable instead of breaking the layout.
+ */
+
+:root {
+  --sow-ink: #0b1220;
+  --sow-accent: #2563eb;
+  --sow-accent-soft: #3b82f6;
+  --sow-surface: rgba(37, 99, 235, 0.06);
+  --sow-border: rgba(148, 163, 184, 0.28);
+  --sow-success: #10b981;
+  --sow-warning: #f59e0b;
+  --sow-danger: #ef4444;
+}
+
+/* ---------------------------------------------------------------- typography */
+body,
+.MuiTypography-root {
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+}
+
+/* Contract clauses are long-form prose: give them a comfortable measure. */
+.sow-message pre,
+.sow-clause {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------------------------------------------------------------- touch targets */
+@media (pointer: coarse) {
+  button,
+  [role="button"],
+  .MuiIconButton-root {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  /* iOS Safari zooms the viewport for inputs below 16px. */
+  textarea,
+  input,
+  .MuiInputBase-input {
+    font-size: 16px !important;
+  }
+}
+
+/* ---------------------------------------------------------------- mobile layout */
+@media (max-width: 640px) {
+  /* Reclaim horizontal space the desktop frame reserves. */
+  main,
+  .MuiContainer-root {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+
+  /* Markdown tables (payment schedules, cost breakdowns) must scroll,
+     not overflow the viewport. */
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
+
+  h1 {
+    font-size: 1.35rem;
+    line-height: 1.3;
+  }
+  h2 {
+    font-size: 1.15rem;
+  }
+  h3 {
+    font-size: 1.02rem;
+  }
+
+  /* Step telemetry is dense; tighten it on small screens. */
+  .sow-step-meta {
+    font-size: 0.72rem;
+  }
+}
+
+/* ---------------------------------------------------------------- step trace */
+/* Give each agent step a left rule so the pipeline reads as a timeline. */
+[data-testid="step"] {
+  border-left: 2px solid var(--sow-border);
+  padding-left: 12px;
+  margin-left: 2px;
+}
+
+[data-testid="step"]:hover {
+  border-left-color: var(--sow-accent-soft);
+}
+
+/* ---------------------------------------------------------------- status chips */
+.sow-chip {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--sow-border);
+}
+.sow-chip--eu {
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.1);
+}
+.sow-chip--us {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.12);
+}
+.sow-chip--ok {
+  color: #047857;
+  background: rgba(16, 185, 129, 0.12);
+}
+.sow-chip--fail {
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+/* ---------------------------------------------------------------- print */
+/* The SOW is a legal document: make browser-printed output clean. */
+@media print {
+  nav,
+  header,
+  footer,
+  [data-testid="step"] {
+    display: none !important;
+  }
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+}

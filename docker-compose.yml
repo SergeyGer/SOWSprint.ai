@@ -1,0 +1,114 @@
+# ---------------------------------------------------------------------------
+# SOWSprint.ai — multi-service local / production stack
+# ---------------------------------------------------------------------------
+#   sowsprint-app     Chainlit GUI + LangGraph engine + API integrations
+#   sowsprint-qdrant  vector database with a persistent storage volume
+#
+# Mobile testing note (from the technical brief): the application container binds
+# 0.0.0.0 inside the network namespace, and the published port is bound on all host
+# interfaces, so an iPhone on the same Wi-Fi can reach the build at
+# http://<host-lan-ip>:8000 .
+#
+# If port 8000 is already taken on your machine, set SOWSPRINT_HOST_PORT in .env —
+# the container-internal port stays 8000 either way.
+
+name: sowsprint
+
+services:
+  # ------------------------------------------------------------------ vector DB
+  sowsprint-qdrant:
+    image: qdrant/qdrant:v1.12.4
+    container_name: sowsprint-qdrant
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: "6334"
+      QDRANT__LOG_LEVEL: INFO
+    ports:
+      # Exposed so the host can run ingestion scripts against the same instance.
+      - "${SOWSPRINT_QDRANT_HTTP_PORT:-6333}:6333"
+      - "${SOWSPRINT_QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    healthcheck:
+      # The Qdrant image ships no curl/wget, so probe the TCP port with bash's
+      # /dev/tcp redirection, which the image's shell supports.
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    networks:
+      - sowsprint-net
+
+  # ------------------------------------------------------------------ application
+  sowsprint-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sowsprint/app:2.0.0
+    container_name: sowsprint-app
+    restart: unless-stopped
+    depends_on:
+      sowsprint-qdrant:
+        condition: service_healthy
+    ports:
+      # Bound on 0.0.0.0 by default so mobile devices on the LAN can connect.
+      - "${SOWSPRINT_HOST_PORT:-8000}:8000"
+    environment:
+      # ---- networking -------------------------------------------------------
+      SOWSPRINT_HOST: "0.0.0.0"
+      SOWSPRINT_PORT: "8000"
+      # ---- vector storage ---------------------------------------------------
+      SOWSPRINT_VECTOR_BACKEND: "qdrant"
+      SOWSPRINT_QDRANT_URL: "http://sowsprint-qdrant:6333"
+      SOWSPRINT_QDRANT_COLLECTION: "${SOWSPRINT_QDRANT_COLLECTION:-sowsprint_legal}"
+      # ---- retrieval --------------------------------------------------------
+      SOWSPRINT_EMBEDDING_PROVIDER: "${SOWSPRINT_EMBEDDING_PROVIDER:-auto}"
+      SOWSPRINT_EMBEDDING_DIM: "${SOWSPRINT_EMBEDDING_DIM:-1536}"
+      SOWSPRINT_RERANK_PROVIDER: "${SOWSPRINT_RERANK_PROVIDER:-auto}"
+      # ---- reasoning (blank => deterministic offline engine) ----------------
+      SOWSPRINT_LLM_PROVIDER: "${SOWSPRINT_LLM_PROVIDER:-auto}"
+      SOWSPRINT_OPENAI_API_KEY: "${SOWSPRINT_OPENAI_API_KEY:-}"
+      SOWSPRINT_ANTHROPIC_API_KEY: "${SOWSPRINT_ANTHROPIC_API_KEY:-}"
+      SOWSPRINT_GROQ_API_KEY: "${SOWSPRINT_GROQ_API_KEY:-}"
+      SOWSPRINT_COHERE_API_KEY: "${SOWSPRINT_COHERE_API_KEY:-}"
+      SOWSPRINT_REASONING_MODEL: "${SOWSPRINT_REASONING_MODEL:-gpt-4o}"
+      SOWSPRINT_CRITIC_MODEL: "${SOWSPRINT_CRITIC_MODEL:-gpt-4o}"
+      SOWSPRINT_FAST_MODEL: "${SOWSPRINT_FAST_MODEL:-gpt-4o-mini}"
+      # ---- integrations -----------------------------------------------------
+      SOWSPRINT_DRY_RUN_INTEGRATIONS: "${SOWSPRINT_DRY_RUN_INTEGRATIONS:-true}"
+      SOWSPRINT_JIRA_BASE_URL: "${SOWSPRINT_JIRA_BASE_URL:-}"
+      SOWSPRINT_JIRA_EMAIL: "${SOWSPRINT_JIRA_EMAIL:-}"
+      SOWSPRINT_JIRA_API_TOKEN: "${SOWSPRINT_JIRA_API_TOKEN:-}"
+      SOWSPRINT_NOTION_API_KEY: "${SOWSPRINT_NOTION_API_KEY:-}"
+      SOWSPRINT_NOTION_PARENT_PAGE_ID: "${SOWSPRINT_NOTION_PARENT_PAGE_ID:-}"
+      # ---- guardrails -------------------------------------------------------
+      SOWSPRINT_SESSION_BUDGET_USD: "${SOWSPRINT_SESSION_BUDGET_USD:-2.50}"
+      SOWSPRINT_MAX_CRITIC_RETRIES: "${SOWSPRINT_MAX_CRITIC_RETRIES:-1}"
+      # ---- observability ----------------------------------------------------
+      SOWSPRINT_LOG_LEVEL: "${SOWSPRINT_LOG_LEVEL:-INFO}"
+      SOWSPRINT_LOG_JSON: "${SOWSPRINT_LOG_JSON:-true}"
+      SOWSPRINT_ENVIRONMENT: "${SOWSPRINT_ENVIRONMENT:-production}"
+    volumes:
+      # Deliverables and the cached BM25 statistics survive a container rebuild.
+      # bm25_stats.json lives inside this directory, so one volume covers both —
+      # mounting a second volume at the same path would shadow the first.
+      - artifact_data:/app/data/artifacts
+    healthcheck:
+      test: ["CMD", "python", "/app/scripts/healthcheck.py", "--url", "http://127.0.0.1:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    networks:
+      - sowsprint-net
+
+volumes:
+  qdrant_storage:
+    driver: local
+  artifact_data:
+    driver: local
+
+networks:
+  sowsprint-net:
+    driver: bridge

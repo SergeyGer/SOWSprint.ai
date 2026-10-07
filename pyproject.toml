@@ -1,0 +1,111 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sowsprint"
+version = "2.0.0"
+description = "Autonomous multi-agent AI platform turning raw B2B requirements into enterprise Statements of Work and deployable project workflows."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "SOWSprint.ai Engineering" }]
+keywords = ["langgraph", "chainlit", "qdrant", "rag", "agents", "b2b", "sow", "compliance"]
+classifiers = [
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Office/Business",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  "langgraph>=0.2.60,<0.4",
+  "langchain-core>=0.3.25,<0.4",
+  "langchain-text-splitters>=0.3.2,<0.4",
+  "chainlit>=2.0.0,<3.0.0",
+  "qdrant-client>=1.12.0,<2.0.0",
+  "openai>=1.55.0,<3.0.0",
+  "anthropic>=0.39.0,<1.0.0",
+  "httpx>=0.27.2,<1.0.0",
+  "pydantic>=2.9.2,<3.0.0",
+  "pydantic-settings>=2.6.1,<3.0.0",
+  "reportlab>=4.2.5,<5.0.0",
+  "structlog>=24.4.0,<26.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.3",
+  "pytest-asyncio>=0.24.0",
+  "pytest-cov>=6.0.0",
+  "ruff>=0.8.0",
+  "mypy>=1.13.0",
+]
+
+[project.scripts]
+sowsprint-ingest = "scripts.ingest_corpus:main"
+
+[project.urls]
+Documentation = "https://github.com/example/sowsprint#readme"
+Source = "https://github.com/example/sowsprint"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ---------------------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF", "ASYNC"]
+ignore = [
+  "E501",   # long strings in prompt templates are intentional
+  "B008",   # pydantic Field(...) defaults in signatures are idiomatic
+  "SIM108", # ternary is not always clearer in scoring code
+  "RUF001", # unicode arrows/box-drawing in docstrings and UI strings
+  "RUF002",
+  "RUF003",
+  # UP042 suggests `enum.StrEnum` over `class X(str, Enum)`. Deliberate: the two are
+  # NOT interchangeable. `str(Jurisdiction.EU)` is "Jurisdiction.EU" for the mixin but
+  # "EU" for StrEnum, which would silently change every f-string and log field that
+  # interpolates an enum. The codebase uses `.value` explicitly wherever the wire
+  # format matters, and there is no functional gain to justify the churn.
+  "UP042",
+  # ASYNC240 flags blocking pathlib calls inside async functions. The one occurrence
+  # is a small temp-file write of an uploaded audio buffer; the transcoding call that
+  # follows it IS offloaded with asyncio.to_thread, which is where the time is spent.
+  "ASYNC240",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "N806"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sowsprint"]
+
+# ---------------------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers --strict-config"
+markers = [
+  "integration: exercises Qdrant or another external service",
+  "e2e: runs the complete graph end to end",
+]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+# ---------------------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "src"
+packages = ["sowsprint"]
+ignore_missing_imports = true
+warn_unused_ignores = false
+disallow_untyped_defs = false
+check_untyped_defs = true

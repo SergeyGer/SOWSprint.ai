@@ -1,0 +1,56 @@
+# ---------------------------------------------------------------------------
+# Docker build context exclusions.
+# Keeping the context small matters: without this, the local virtualenv (~700 MB)
+# is shipped to the daemon on every build.
+# ---------------------------------------------------------------------------
+
+# Python virtualenvs and caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.pip-cache/
+.tmp/
+
+# Generated deliverables and local vector data — mounted as volumes instead
+data/artifacts/
+data/*.sqlite
+
+# Version control and CI
+.git/
+.gitignore
+.github/
+
+# Editors and OS cruft
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Tooling that is not needed at runtime
+tests/
+docs/
+scripts/verify_ui.py
+scripts/demo_e2e.py
+*.md
+!chainlit.md
+docker-compose*.yml
+Dockerfile
+.dockerignore
+Makefile
+
+# Documentation
+docs/
