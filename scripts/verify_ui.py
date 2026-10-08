@@ -175,13 +175,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     print("✓ socket connected")
 
-    if args.jurisdiction:
-        client.emit("chat_settings_change", {"jurisdiction": args.jurisdiction})
-        print(f"✓ compliance regime set to {args.jurisdiction}")
-
     client.emit("connection_successful")
     _wait_for(lambda: any("SOWSprint" in t for t in collector.assistant_texts()), 60, collector)
     print(f"✓ on_chat_start rendered ({len(collector.assistant_texts())} message(s))")
+
+    # The regime change MUST be emitted after connection_successful: on_chat_start
+    # resets cl.user_session["jurisdiction"] to the configured default, so setting it
+    # any earlier is silently overwritten and the run proceeds under the wrong regime.
+    if args.jurisdiction:
+        client.emit("chat_settings_change", {"jurisdiction": args.jurisdiction})
+        time.sleep(3)
+        print(f"✓ compliance regime set to {args.jurisdiction}")
 
     def send(text: str) -> None:
         client.emit(
