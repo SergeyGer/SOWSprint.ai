@@ -48,17 +48,18 @@ class ModelPrice:
 
 #: Reference price book. Keys are matched case-insensitively, longest-prefix first,
 #: so dated snapshots such as ``gpt-4o-2024-11-20`` resolve to the ``gpt-4o`` entry.
+#:
+#: Verified against the vendors' published pricing pages. An unlisted model that
+#: prefix-matches a listed family bills at the family rate; a model matching nothing
+#: prices at zero — which is exactly why new model ids must be added here. A silently
+#: free model makes the cost dashboard lie.
 PRICE_BOOK: dict[str, ModelPrice] = {
-    # ---- OpenAI -------------------------------------------------------------
-    "gpt-4o": ModelPrice(2.50, 10.00, 1.25, "openai"),
-    "gpt-4o-mini": ModelPrice(0.15, 0.60, 0.075, "openai"),
-    "gpt-4.1": ModelPrice(2.00, 8.00, 0.50, "openai"),
-    "gpt-4.1-mini": ModelPrice(0.40, 1.60, 0.10, "openai"),
-    "gpt-4.1-nano": ModelPrice(0.10, 0.40, 0.025, "openai"),
-    "o3": ModelPrice(2.00, 8.00, 0.50, "openai"),
-    "o3-mini": ModelPrice(1.10, 4.40, 0.55, "openai"),
-    "o4-mini": ModelPrice(1.10, 4.40, 0.275, "openai"),
-    # ---- Anthropic ----------------------------------------------------------
+    # ---- Anthropic (current) ------------------------------------------------
+    "claude-haiku-5-5": ModelPrice(0.10, 0.50, 0.01, "anthropic"),
+    "claude-sonnet-5-5": ModelPrice(2.00, 10.00, 0.10, "anthropic"),
+    "claude-opus-5-5": ModelPrice(4.00, 20.00, 0.20, "anthropic"),
+    "claude-fable-5-1": ModelPrice(10.00, 50.00, 0.25, "anthropic"),
+    # ---- Anthropic (legacy, still callable) ---------------------------------
     "claude-3-5-sonnet": ModelPrice(3.00, 15.00, 0.30, "anthropic"),
     "claude-3-5-haiku": ModelPrice(0.80, 4.00, 0.08, "anthropic"),
     "claude-3-7-sonnet": ModelPrice(3.00, 15.00, 0.30, "anthropic"),
@@ -66,6 +67,30 @@ PRICE_BOOK: dict[str, ModelPrice] = {
     "claude-opus-4": ModelPrice(15.00, 75.00, 1.50, "anthropic"),
     "claude-3-opus": ModelPrice(15.00, 75.00, 1.50, "anthropic"),
     "claude-3-haiku": ModelPrice(0.25, 1.25, 0.03, "anthropic"),
+    # ---- OpenAI (current) ---------------------------------------------------
+    "gpt-6-luna": ModelPrice(0.10, 0.50, 0.01, "openai"),
+    "gpt-6-sol": ModelPrice(2.00, 10.00, 0.20, "openai"),
+    "gpt-6-astra": ModelPrice(10.00, 50.00, 1.00, "openai"),
+    "gpt-5.6-luna": ModelPrice(0.20, 1.20, 0.02, "openai"),
+    "gpt-5.6-terra": ModelPrice(2.00, 12.00, 0.20, "openai"),
+    "gpt-5.6-sol": ModelPrice(4.00, 20.00, 0.40, "openai"),
+    "gpt-5.4-nano": ModelPrice(0.20, 1.25, 0.02, "openai"),
+    "gpt-5.4-mini": ModelPrice(0.75, 4.50, 0.075, "openai"),
+    "gpt-5.4": ModelPrice(2.50, 15.00, 0.25, "openai"),
+    "gpt-5-nano": ModelPrice(0.05, 0.40, 0.005, "openai"),
+    "gpt-5-mini": ModelPrice(0.25, 2.00, 0.025, "openai"),
+    "gpt-5.2": ModelPrice(1.75, 14.00, 0.175, "openai"),
+    "gpt-5.1": ModelPrice(1.25, 10.00, 0.125, "openai"),
+    "gpt-5": ModelPrice(1.25, 10.00, 0.125, "openai"),
+    # ---- OpenAI (widely deployed) -------------------------------------------
+    "gpt-4o": ModelPrice(2.50, 10.00, 1.25, "openai"),
+    "gpt-4o-mini": ModelPrice(0.15, 0.60, 0.075, "openai"),
+    "gpt-4.1": ModelPrice(2.00, 8.00, 0.50, "openai"),
+    "gpt-4.1-mini": ModelPrice(0.40, 1.60, 0.10, "openai"),
+    "gpt-4.1-nano": ModelPrice(0.10, 0.40, 0.025, "openai"),
+    "o4-mini": ModelPrice(1.10, 4.40, 0.275, "openai"),
+    "o3-mini": ModelPrice(1.10, 4.40, 0.55, "openai"),
+    "o3": ModelPrice(2.00, 8.00, 0.50, "openai"),
     # ---- Groq (open-weights, very high throughput) --------------------------
     "llama-3.3-70b-versatile": ModelPrice(0.59, 0.79, None, "groq"),
     "llama-3.1-8b-instant": ModelPrice(0.05, 0.08, None, "groq"),

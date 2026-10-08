@@ -9,7 +9,7 @@ normalises: the system prompt is a top-level argument rather than a message role
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, ClassVar
 
 from anthropic import Anthropic
 
@@ -21,6 +21,16 @@ class AnthropicClient(BaseLLMClient):
     """Chat client for Anthropic Claude models."""
 
     provider = "anthropic"
+
+    #: Claude ids always contain "claude". Anything else reaching this client is a
+    #: configuration error that would otherwise surface as an opaque API 404.
+    model_family_markers = ("claude",)
+
+    provider_defaults: ClassVar[dict[str, str]] = {
+        "reasoning": "claude-sonnet-5-5",
+        "critic": "claude-sonnet-5-5",
+        "fast": "claude-haiku-5-5",
+    }
 
     def __init__(self, session_id: str, settings: Settings | None = None) -> None:
         super().__init__(session_id, settings)

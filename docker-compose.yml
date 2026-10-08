@@ -54,52 +54,24 @@ services:
     ports:
       # Bound on 0.0.0.0 by default so mobile devices on the LAN can connect.
       - "${SOWSPRINT_HOST_PORT:-8000}:8000"
+    # Every SOWSPRINT_* variable in .env is passed straight through. Enumerating them
+    # explicitly here silently DROPPED any setting not on the list — adding
+    # `SOWSPRINT_CRITIC_PROVIDER` to .env had no effect until the list was edited too.
+    # Listing the file instead means new settings work without touching compose.
+    env_file:
+      - path: .env
+        required: false
     environment:
-      # ---- networking -------------------------------------------------------
+      # ---- forced by the container topology ---------------------------------
+      # These must NOT come from .env: they describe how the services address each
+      # other inside the bridge network, not how the operator configures the app.
       SOWSPRINT_HOST: "0.0.0.0"
       SOWSPRINT_PORT: "8000"
-      # ---- vector storage ---------------------------------------------------
       SOWSPRINT_VECTOR_BACKEND: "qdrant"
       SOWSPRINT_QDRANT_URL: "http://sowsprint-qdrant:6333"
-      SOWSPRINT_QDRANT_COLLECTION: "${SOWSPRINT_QDRANT_COLLECTION:-sowsprint_legal}"
-      # ---- retrieval --------------------------------------------------------
-      SOWSPRINT_EMBEDDING_PROVIDER: "${SOWSPRINT_EMBEDDING_PROVIDER:-auto}"
-      SOWSPRINT_EMBEDDING_DIM: "${SOWSPRINT_EMBEDDING_DIM:-1536}"
-      SOWSPRINT_RERANK_PROVIDER: "${SOWSPRINT_RERANK_PROVIDER:-auto}"
-      # ---- reasoning (blank => deterministic offline engine) ----------------
-      SOWSPRINT_LLM_PROVIDER: "${SOWSPRINT_LLM_PROVIDER:-auto}"
-      SOWSPRINT_OPENAI_API_KEY: "${SOWSPRINT_OPENAI_API_KEY:-}"
-      SOWSPRINT_ANTHROPIC_API_KEY: "${SOWSPRINT_ANTHROPIC_API_KEY:-}"
-      SOWSPRINT_GROQ_API_KEY: "${SOWSPRINT_GROQ_API_KEY:-}"
-      SOWSPRINT_COHERE_API_KEY: "${SOWSPRINT_COHERE_API_KEY:-}"
-      SOWSPRINT_REASONING_MODEL: "${SOWSPRINT_REASONING_MODEL:-gpt-4o}"
-      SOWSPRINT_CRITIC_MODEL: "${SOWSPRINT_CRITIC_MODEL:-gpt-4o}"
-      SOWSPRINT_FAST_MODEL: "${SOWSPRINT_FAST_MODEL:-gpt-4o-mini}"
-      # ---- integrations -----------------------------------------------------
-      SOWSPRINT_DRY_RUN_INTEGRATIONS: "${SOWSPRINT_DRY_RUN_INTEGRATIONS:-true}"
-      SOWSPRINT_JIRA_BASE_URL: "${SOWSPRINT_JIRA_BASE_URL:-}"
-      SOWSPRINT_JIRA_EMAIL: "${SOWSPRINT_JIRA_EMAIL:-}"
-      SOWSPRINT_JIRA_API_TOKEN: "${SOWSPRINT_JIRA_API_TOKEN:-}"
-      SOWSPRINT_NOTION_API_KEY: "${SOWSPRINT_NOTION_API_KEY:-}"
-      SOWSPRINT_NOTION_PARENT_PAGE_ID: "${SOWSPRINT_NOTION_PARENT_PAGE_ID:-}"
-      # ---- voice scoping ----------------------------------------------------
-      SOWSPRINT_WHISPER_PROVIDER: "${SOWSPRINT_WHISPER_PROVIDER:-auto}"
-      SOWSPRINT_WHISPER_MODEL: "${SOWSPRINT_WHISPER_MODEL:-whisper-1}"
-      SOWSPRINT_GROQ_WHISPER_MODEL: "${SOWSPRINT_GROQ_WHISPER_MODEL:-whisper-large-v3-turbo}"
-      # Self-hosted OpenAI-compatible Whisper. When set, it takes precedence over the
-      # cloud providers so dictated requirements never leave the network.
-      SOWSPRINT_WHISPER_BASE_URL: "${SOWSPRINT_WHISPER_BASE_URL:-}"
-      SOWSPRINT_WHISPER_API_KEY: "${SOWSPRINT_WHISPER_API_KEY:-}"
-      # Must match [features.audio].sample_rate in .chainlit/config.toml.
-      SOWSPRINT_AUDIO_SAMPLE_RATE: "${SOWSPRINT_AUDIO_SAMPLE_RATE:-24000}"
-      SOWSPRINT_MAX_AUDIO_MB: "${SOWSPRINT_MAX_AUDIO_MB:-25}"
-      # ---- guardrails -------------------------------------------------------
-      SOWSPRINT_SESSION_BUDGET_USD: "${SOWSPRINT_SESSION_BUDGET_USD:-2.50}"
-      SOWSPRINT_MAX_CRITIC_RETRIES: "${SOWSPRINT_MAX_CRITIC_RETRIES:-1}"
-      # ---- observability ----------------------------------------------------
+      # Explicit, so `docker compose exec` inherits the same telemetry default.
       SOWSPRINT_LOG_LEVEL: "${SOWSPRINT_LOG_LEVEL:-INFO}"
       SOWSPRINT_LOG_JSON: "${SOWSPRINT_LOG_JSON:-true}"
-      SOWSPRINT_ENVIRONMENT: "${SOWSPRINT_ENVIRONMENT:-production}"
     volumes:
       # Deliverables and the cached BM25 statistics survive a container rebuild.
       # bm25_stats.json lives inside this directory, so one volume covers both —

@@ -176,6 +176,7 @@ def test_capability_matrix_reports_every_subsystem():
 
     assert set(matrix) == {
         "reasoning",
+        "critic",
         "embeddings",
         "reranker",
         "vector_store",
@@ -185,6 +186,9 @@ def test_capability_matrix_reports_every_subsystem():
     }
     assert matrix == {
         "reasoning": "mock",
+        # No critic_provider configured, so the Critic shares the reasoning provider
+        # and no independence suffix is shown.
+        "critic": "mock",
         "embeddings": "hash",
         "reranker": "heuristic",
         "vector_store": "memory",
@@ -196,6 +200,62 @@ def test_capability_matrix_reports_every_subsystem():
         "jira": "dry-run (unconfigured)",
         "notion": "dry-run (unconfigured)",
     }
+
+
+def test_critic_can_run_on_a_different_provider_than_the_drafter():
+    """Judge independence is a configuration guarantee, not a documentation claim."""
+    from sowsprint.config import LLMProvider
+
+    settings = make_settings(
+        anthropic_api_key="sk-ant",
+        openai_api_key="sk-oai",
+        reasoning_model="claude-haiku-5-5",
+        critic_model="gpt-4o-mini",
+        critic_provider=LLMProvider.OPENAI,
+    )
+    assert settings.resolved_llm_provider is LLMProvider.ANTHROPIC
+    assert settings.resolved_critic_provider is LLMProvider.OPENAI
+    assert settings.judge_is_independent is True
+    assert settings.capability_matrix()["critic"] == "openai (independent judge)"
+
+
+def test_critic_inherits_the_drafter_provider_by_default():
+
+    settings = make_settings(anthropic_api_key="sk-ant", anthropic_base_url=None)
+    assert settings.resolved_critic_provider is settings.resolved_llm_provider
+    assert settings.judge_is_independent is False
+    assert settings.capability_matrix()["critic"] == "anthropic"
+
+
+def test_critic_and_fast_models_inherit_the_reasoning_model_when_unset():
+    """One provider should need one model id, not three."""
+    from sowsprint.llm.anthropic_client import AnthropicClient
+
+    settings = make_settings(
+        anthropic_api_key="sk-ant",
+        reasoning_model="claude-haiku-5-5",
+        critic_model=None,
+        fast_model=None,
+    )
+    client = AnthropicClient("tier-inheritance", settings)
+    assert client.default_model("reasoning") == "claude-haiku-5-5"
+    assert client.default_model("critic") == "claude-haiku-5-5"
+    assert client.default_model("fast") == "claude-haiku-5-5"
+
+
+def test_foreign_model_id_falls_back_instead_of_failing_at_the_api():
+    """A cross-vendor model id must not reach the wrong API as an opaque 404."""
+    from sowsprint.llm.anthropic_client import AnthropicClient
+
+    settings = make_settings(
+        anthropic_api_key="sk-ant",
+        reasoning_model="gpt-4o",
+        critic_model="gpt-4o-mini",
+    )
+    client = AnthropicClient("tier-guard", settings)
+    assert client.default_model("reasoning").startswith("claude-")
+    assert client.default_model("critic").startswith("claude-")
+    assert client.default_model("fast").startswith("claude-")
 
 
 def test_capability_matrix_agrees_with_connector_mode():
@@ -835,3 +895,55 @@ def test_cost_ledger_reset_clears_everything():
     # The ledger stays usable after a reset.
     ledger.record(TokenUsage(model="gpt-4o", node="triage", cost_usd=0.001))
     assert ledger.report().calls == 1
+
+
+def test_capability_matrix_admits_when_a_cloud_provider_has_no_key():
+    """A dashboard that reports a model which is not in use is worse than none."""
+    from sowsprint.config import LLMProvider
+
+    # Provider pinned explicitly, but no credential supplied: build_llm_client
+    # degrades to the offline engine, so the matrix must say so.
+    settings = make_settings(
+        llm_provider=LLMProvider.ANTHROPIC,
+        anthropic_api_key=None,
+        critic_provider=LLMProvider.OPENAI,
+        openai_api_key=None,
+    )
+    matrix = settings.capability_matrix()
+
+    assert matrix["reasoning"] == "anthropic (no key - offline fallback)"
+    assert "no key" in matrix["critic"]
+    assert settings.provider_is_usable(LLMProvider.ANTHROPIC) is False
+    assert settings.provider_is_usable(LLMProvider.MOCK) is True
+    # Self-hosted has no credential to check, so it is never flagged.
+    assert settings.provider_is_usable(LLMProvider.OLLAMA) is True
+
+
+def test_capability_matrix_drops_the_caveat_once_the_key_is_present():
+    from sowsprint.config import LLMProvider
+
+    settings = make_settings(
+        llm_provider=LLMProvider.ANTHROPIC,
+        anthropic_api_key="sk-ant-real",
+        critic_provider=LLMProvider.OPENAI,
+        openai_api_key="sk-oai-real",
+    )
+    matrix = settings.capability_matrix()
+    assert matrix["reasoning"] == "anthropic"
+    assert matrix["critic"] == "openai (independent judge)"
+    assert "no key" not in matrix["critic"]
+
+
+def test_partial_configuration_is_reported_per_tier():
+    """Supplying only the drafting key must not make the Critic look healthy."""
+    from sowsprint.config import LLMProvider
+
+    settings = make_settings(
+        llm_provider=LLMProvider.ANTHROPIC,
+        anthropic_api_key="sk-ant-real",
+        critic_provider=LLMProvider.OPENAI,
+        openai_api_key=None,
+    )
+    matrix = settings.capability_matrix()
+    assert matrix["reasoning"] == "anthropic"
+    assert "no key" in matrix["critic"]

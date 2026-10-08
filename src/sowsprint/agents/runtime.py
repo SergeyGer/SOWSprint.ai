@@ -144,6 +144,7 @@ class ScopingSession:
         self.pipeline = pipeline or get_pipeline(self.settings)
         self.registry = registry or build_default_registry()
 
+        # `nodes` owns the per-tier clients, including the independent Critic.
         self.nodes = AgentNodes(
             session_id,
             client=self.client,

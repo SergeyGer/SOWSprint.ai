@@ -426,7 +426,11 @@ class TestSelfCorrection:
     ) -> None:
         tracker.drop_ledger(session_id)
         session = ScopingSession(session_id, settings=settings, pipeline=full_pipeline)
-        session.nodes.client = ScriptedCriticClient(session.nodes.client, fail_times=1)
+        # The Critic owns a separate client now (judge independence), so the
+        # failure injection must target that client, not the reasoning one.
+        session.nodes.critic_client = ScriptedCriticClient(
+            session.nodes.critic_client, fail_times=1
+        )
 
         outcome = session.start(detailed_brief, jurisdiction="EU", auto_deploy=True)
 
@@ -440,7 +444,11 @@ class TestSelfCorrection:
     ) -> None:
         tracker.drop_ledger(session_id)
         session = ScopingSession(session_id, settings=settings, pipeline=full_pipeline)
-        session.nodes.client = ScriptedCriticClient(session.nodes.client, fail_times=1)
+        # The Critic owns a separate client now (judge independence), so the
+        # failure injection must target that client, not the reasoning one.
+        session.nodes.critic_client = ScriptedCriticClient(
+            session.nodes.critic_client, fail_times=1
+        )
         session.start(detailed_brief, jurisdiction="EU", auto_deploy=True)
 
         assert session.state.get("critique_attempts", 0) >= 2
@@ -451,7 +459,9 @@ class TestSelfCorrection:
         """A permanently failing audit must still terminate, not spin."""
         tracker.drop_ledger(session_id)
         session = ScopingSession(session_id, settings=settings, pipeline=full_pipeline)
-        session.nodes.client = ScriptedCriticClient(session.nodes.client, fail_times=99)
+        session.nodes.critic_client = ScriptedCriticClient(
+            session.nodes.critic_client, fail_times=99
+        )
 
         outcome = session.start(detailed_brief, jurisdiction="EU", auto_deploy=True)
 

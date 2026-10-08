@@ -13,13 +13,47 @@ Two design rules keep this suite fast and deterministic:
 
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
+
 import pytest
 
-from sowsprint.config import Settings, VectorBackend
+from sowsprint.config import Settings, VectorBackend, reset_settings_cache
 from sowsprint.rag.embeddings import HashEmbedder
 from sowsprint.rag.ingest import ingest_corpus
 from sowsprint.rag.pipeline import RagPipeline
 from sowsprint.rag.store import build_store
+
+# --------------------------------------------------------------------------------------
+# Hermetic configuration
+# --------------------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _hermetic_settings() -> Iterator[None]:
+    """Stop the developer's environment from influencing test outcomes.
+
+    ``Settings`` reads a ``.env`` file from the working directory and honours ambient
+    ``SOWSPRINT_*`` variables. Without this fixture, adding a local ``.env`` silently
+    changes what the suite asserts — which is exactly what happened the first time this
+    project gained one: ``SOWSPRINT_CRITIC_PROVIDER=openai`` in a developer's file made
+    provider-resolution tests fail for reasons unrelated to the code.
+
+    Both sources are neutralised for the session and restored afterwards.
+    """
+    original_env_file = Settings.model_config.get("env_file")
+    saved_variables = {
+        key: os.environ.pop(key) for key in list(os.environ) if key.startswith("SOWSPRINT_")
+    }
+    Settings.model_config["env_file"] = None
+    reset_settings_cache()
+    try:
+        yield
+    finally:
+        Settings.model_config["env_file"] = original_env_file
+        os.environ.update(saved_variables)
+        reset_settings_cache()
+
 
 # --------------------------------------------------------------------------------------
 # Settings

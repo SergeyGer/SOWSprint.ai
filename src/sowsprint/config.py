@@ -105,11 +105,27 @@ class Settings(BaseSettings):
     reasoning_model: str = "gpt-4o"
     """Model used by Triage / Architect / Legal nodes (highest quality tier)."""
 
-    critic_model: str = "gpt-4o"
-    """Critic runs LLM-as-a-Judge; may be pointed at a different vendor for independence."""
+    critic_model: str | None = None
+    """Critic runs LLM-as-a-Judge. ``None`` inherits :attr:`reasoning_model`.
 
-    fast_model: str = "gpt-4o-mini"
-    """Cheap tier for classification, extraction and query rewriting."""
+    Leaving this unset is the safe default: a hard-coded vendor-specific default here
+    would be sent to whichever provider the reasoning tier resolved to, producing an
+    opaque "model not found" from the wrong API.
+    """
+
+    critic_provider: LLMProvider = LLMProvider.AUTO
+    """Provider serving the Critic node. ``AUTO`` uses the reasoning provider.
+
+    Set this to a *different vendor* than the drafting agent to get genuine judge
+    independence — a model auditing its own output is measurably weaker at catching
+    its own hallucinations.
+    """
+
+    fast_model: str | None = None
+    """Cheap tier for classification, extraction and query rewriting.
+
+    ``None`` inherits :attr:`reasoning_model`, for the same reason as ``critic_model``.
+    """
 
     request_timeout_s: float = 120.0
     max_retries: int = 3
@@ -237,6 +253,18 @@ class Settings(BaseSettings):
         return LLMProvider.MOCK
 
     @property
+    def resolved_critic_provider(self) -> LLMProvider:
+        """Provider serving the Critic node."""
+        if self.critic_provider is LLMProvider.AUTO:
+            return self.resolved_llm_provider
+        return self.critic_provider
+
+    @property
+    def judge_is_independent(self) -> bool:
+        """True when the Critic runs on a different vendor than the drafting agent."""
+        return self.resolved_critic_provider is not self.resolved_llm_provider
+
+    @property
     def resolved_embedding_provider(self) -> EmbeddingProvider:
         if self.embedding_provider is not EmbeddingProvider.AUTO:
             return self.embedding_provider
@@ -275,15 +303,47 @@ class Settings(BaseSettings):
         """True when the platform will run entirely on deterministic local engines."""
         return self.resolved_llm_provider is LLMProvider.MOCK
 
+    def provider_is_usable(self, provider: LLMProvider) -> bool:
+        """True when this provider can actually be constructed.
+
+        ``build_llm_client`` silently degrades to the offline engine when a cloud
+        provider has no credential, so reporting the configured provider without that
+        caveat would tell the operator a model is in use when it is not.
+        """
+        return {
+            LLMProvider.ANTHROPIC: self.has_anthropic,
+            LLMProvider.OPENAI: self.has_openai,
+            LLMProvider.GROQ: self.has_groq,
+            # Self-hosted runtimes are assumed reachable; there is no key to check.
+            LLMProvider.OLLAMA: True,
+            LLMProvider.MOCK: True,
+            LLMProvider.AUTO: True,
+        }.get(provider, True)
+
+    def describe_provider(self, provider: LLMProvider) -> str:
+        """Provider label annotated with a degradation note when it is unusable."""
+        if not self.provider_is_usable(provider):
+            return f"{provider.value} (no key - offline fallback)"
+        return provider.value
+
     def capability_matrix(self) -> dict[str, str]:
         """Human-readable summary of which adapter each subsystem resolved to.
 
-        The integration entries are derived from the *same* predicate the connectors
-        use (``dry_run = dry_run_integrations or not configured``), so the UI can never
-        claim "live" while the connector is simulating, or vice versa.
+        Every entry reflects what will *actually* run, not what was configured:
+
+        * integration entries derive from the same predicate the connectors use;
+        * reasoning entries are annotated when a cloud provider has no credential.
+
+        A dashboard that reports a model which is not in use is worse than no
+        dashboard, because it is trusted.
         """
+        critic_label = self.describe_provider(self.resolved_critic_provider)
+        if self.judge_is_independent:
+            critic_label += " (independent judge)"
+
         return {
-            "reasoning": self.resolved_llm_provider.value,
+            "reasoning": self.describe_provider(self.resolved_llm_provider),
+            "critic": critic_label,
             "embeddings": self.resolved_embedding_provider.value,
             "reranker": self.resolved_rerank_provider.value,
             "vector_store": self.vector_backend.value,

@@ -28,7 +28,7 @@ from typing import Any
 
 from ..config import Settings, get_settings
 from ..llm.base import BaseLLMClient, BudgetExceededError, LLMError
-from ..llm.factory import ModelRouter, get_session_client
+from ..llm.factory import ModelRouter, build_llm_client, get_session_client
 from ..models import (
     CritiqueReport,
     Jurisdiction,
@@ -126,10 +126,38 @@ class AgentNodes:
         self.session_id = session_id
         self.settings = settings or get_settings()
         self.client = client or get_session_client(session_id, self.settings)
+        self.critic_client = self._resolve_critic_client(client)
         self.pipeline = pipeline or get_pipeline(self.settings)
         self.registry = registry or build_default_registry()
         self.router = ModelRouter(session_id, self.settings)
         self.executor = ToolExecutor(self.registry)
+
+    def _resolve_critic_client(self, injected: BaseLLMClient | None) -> BaseLLMClient:
+        """Give the Critic its own client when it runs on a different provider.
+
+        Judge independence is only real if the request actually reaches another vendor.
+        Without this, setting ``critic_model`` to an OpenAI id while the reasoning tier
+        resolved to Anthropic would post that id to the Anthropic API and fail.
+
+        The **same** ``session_id`` is passed deliberately: the cost ledger is keyed by
+        session, so a separate id would hide the Critic's spend from the dashboard.
+        """
+        if injected is not None:
+            # A caller-injected client (tests, custom wiring) serves every node.
+            return injected
+
+        critic_provider = self.settings.resolved_critic_provider
+        if critic_provider is self.settings.resolved_llm_provider:
+            return self.client
+
+        log.info(
+            "nodes.critic_provider_split",
+            reasoning=self.settings.resolved_llm_provider.value,
+            critic=critic_provider.value,
+        )
+        return build_llm_client(
+            self.session_id, self.settings, provider=critic_provider
+        )
 
     # ------------------------------------------------------------------ helpers
     def _halted(self, state: GraphState) -> bool:
@@ -478,7 +506,7 @@ class AgentNodes:
                 blueprint=state.get("blueprint"),
                 attempt=attempt,
             )
-            response = self.client.complete(
+            response = self.critic_client.complete(
                 messages,
                 schema=CritiqueReport,
                 node="critic",

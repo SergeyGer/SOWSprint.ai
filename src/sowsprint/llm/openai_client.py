@@ -8,7 +8,7 @@ self-hosted inference; only ``base_url`` and the model id change.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, ClassVar
 
 from openai import OpenAI
 
@@ -21,6 +21,17 @@ _REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5")
 
 class OpenAIClient(BaseLLMClient):
     """Chat client for OpenAI and every OpenAI-compatible gateway."""
+
+    #: Deliberately permissive: this adapter also fronts Groq, Ollama, vLLM and
+    #: LiteLLM, whose model ids share no common prefix. The guard exists to catch the
+    #: one mistake that matters here — an Anthropic id sent to an OpenAI endpoint.
+    model_family_markers: ClassVar[tuple[str, ...]] = ()
+
+    provider_defaults: ClassVar[dict[str, str]] = {
+        "reasoning": "gpt-4o",
+        "critic": "gpt-4o-mini",
+        "fast": "gpt-4o-mini",
+    }
 
     def __init__(
         self,
@@ -87,6 +98,13 @@ class GroqClient(OpenAIClient):
     """Groq LPU inference — used for low-latency Whisper and fast model tiers."""
 
     GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+    provider = "groq"
+
+    provider_defaults: ClassVar[dict[str, str]] = {
+        "reasoning": "llama-3.3-70b-versatile",
+        "critic": "llama-3.3-70b-versatile",
+        "fast": "llama-3.1-8b-instant",
+    }
 
     def __init__(self, session_id: str, settings: Settings | None = None) -> None:
         super().__init__(

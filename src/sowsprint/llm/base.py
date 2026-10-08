@@ -19,7 +19,7 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypeVar
+from typing import Any, ClassVar, Literal, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -141,13 +141,50 @@ class BaseLLMClient(ABC):
         ``completion_tokens`` and ``cached_tokens``.
         """
 
+    #: Substrings identifying a model as belonging to this provider's family. When the
+    #: configured model matches none of them, the request would fail with an opaque
+    #: "model not found", so the provider default is substituted with a warning.
+    model_family_markers: ClassVar[tuple[str, ...]] = ()
+
+    #: Provider-appropriate default per logical tier, used when nothing is configured
+    #: or when the configured model belongs to a different vendor.
+    provider_defaults: ClassVar[dict[str, str]] = {}
+
     def default_model(self, tier: str = "reasoning") -> str:
-        """Resolve a logical tier to a concrete model id for this provider."""
-        if tier == "fast":
-            return self.settings.fast_model
-        if tier == "critic":
-            return self.settings.critic_model
-        return self.settings.reasoning_model
+        """Resolve a logical tier to a concrete model id for this provider.
+
+        ``critic_model`` and ``fast_model`` are optional and inherit the reasoning
+        model when unset, so a single-provider configuration needs one model id rather
+        than three.
+        """
+        configured = (
+            {
+                "fast": self.settings.fast_model,
+                "critic": self.settings.critic_model,
+            }.get(tier)
+            or self.settings.reasoning_model
+        )
+
+        if self.model_family_markers and not any(
+            marker in configured.lower() for marker in self.model_family_markers
+        ):
+            fallback = self.provider_defaults.get(tier) or self.provider_defaults.get(
+                "reasoning", configured
+            )
+            log.warning(
+                "llm.model_provider_mismatch",
+                provider=self.provider,
+                tier=tier,
+                configured=configured,
+                using=fallback,
+                hint=(
+                    f"'{configured}' does not look like a {self.provider} model id. "
+                    f"Set SOWSPRINT_{tier.upper()}_MODEL, or route this tier to another "
+                    f"provider (e.g. SOWSPRINT_CRITIC_PROVIDER)."
+                ),
+            )
+            return fallback
+        return configured
 
     # ------------------------------------------------------------------ public API
     def complete(
