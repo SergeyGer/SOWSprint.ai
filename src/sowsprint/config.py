@@ -128,7 +128,24 @@ class Settings(BaseSettings):
     """
 
     request_timeout_s: float = 120.0
-    max_retries: int = 3
+    """Read timeout: how long to wait for tokens once a request is in flight.
+
+    Generous on purpose — a large structured-output completion legitimately takes a
+    while, and cutting it off mid-JSON is worse than waiting.
+    """
+
+    connect_timeout_s: float = 10.0
+    """Connect timeout: how long to wait for the TCP/TLS handshake.
+
+    Kept short and separate from the read timeout. A single 120-second budget for both
+    means an unreachable endpoint burns two minutes per attempt — six minutes across
+    three retries — before the fallback provider engages, during which the user's chat
+    simply hangs.
+    """
+
+    #: Attempts per call. One may be consumed by output-budget escalation, so a
+    #: value of 3 leaves only two genuine retries for a large structured node.
+    max_retries: int = 4
     temperature: float = 0.1
     max_tokens: int = 4096
 

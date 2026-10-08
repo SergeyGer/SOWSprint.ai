@@ -45,6 +45,33 @@ PROTECTED_NODES = frozenset({"legal", "critic"})
 #: Budget fraction above which non-protected nodes drop to the cheap tier.
 DEGRADE_THRESHOLD = 0.7
 
+#: Output budget per node.
+#:
+#: One global ``max_tokens`` cannot serve both ends of this graph. Triage emits a
+#: one-screen scope, while Architect and Legal emit deeply nested structures (milestones
+#: → epics → stories → acceptance criteria; clauses with citations) that run to many
+#: thousands of tokens. Under a shared 4096-token budget those nodes were truncated
+#: mid-JSON on every attempt, failed schema validation for reasons that looked like model
+#: incompetence, and silently degraded to the offline engine — while still reporting
+#: success.
+#:
+#: These ceilings are deliberately generous because ``max_tokens`` is a *limit*, not a
+#: reservation: providers bill for tokens actually generated, so headroom is free. A
+#: measured Architect response for a modest brief used 12,313 tokens; anything tighter
+#: truncates as soon as the customer supplies a richer scope.
+NODE_MAX_TOKENS: dict[str, int] = {
+    "triage": 4_096,
+    "query_rewrite": 2_048,
+    "architect": 24_000,
+    "legal": 24_000,
+    "critic": 12_000,
+    "tools": 24_000,
+    "summarise": 2_048,
+}
+
+#: Ceiling for automatic escalation when a response is cut off by the token limit.
+MAX_ESCALATED_TOKENS = 64_000
+
 
 class ModelRouter:
     """Chooses the quality tier for a node, taking budget pressure into account."""
@@ -52,6 +79,10 @@ class ModelRouter:
     def __init__(self, session_id: str, settings: Settings | None = None) -> None:
         self.session_id = session_id
         self.settings = settings or get_settings()
+
+    def max_tokens_for(self, node: str) -> int:
+        """Output budget for a node, never below the operator's configured floor."""
+        return max(NODE_MAX_TOKENS.get(node, self.settings.max_tokens), self.settings.max_tokens)
 
     def tier_for(self, node: str) -> str:
         tier = NODE_TIERS.get(node, "reasoning")

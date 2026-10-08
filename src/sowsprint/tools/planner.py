@@ -19,6 +19,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..llm.base import BaseLLMClient
+from ..llm.factory import NODE_MAX_TOKENS
 from ..observability.logging import get_logger
 from .registry import ToolRegistry, ToolSpec
 
@@ -72,6 +73,9 @@ def plan_tool_calls(
             schema=ToolCallPlan,
             node="tools",
             tier="reasoning",
+            # Tool planning emits one call per epic and per story, so it needs the same
+            # generous output budget as the Architect node that produced the plan.
+            max_tokens=NODE_MAX_TOKENS["tools"],
         )
     except Exception as exc:
         log.warning("tools.planning_failed", error=str(exc))

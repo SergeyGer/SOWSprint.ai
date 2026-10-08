@@ -10,10 +10,21 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, ClassVar
 
+import httpx
 from openai import OpenAI
 
 from ..config import Settings
 from .base import BaseLLMClient, Message
+
+
+def _llm_timeout(settings: Settings) -> httpx.Timeout:
+    """Split connect and read budgets for an LLM HTTP client.
+
+    A single shared timeout means an unreachable endpoint consumes the full read
+    budget on every attempt — minutes of a user's chat hanging — before the
+    fallback provider is allowed to engage.
+    """
+    return httpx.Timeout(settings.request_timeout_s, connect=settings.connect_timeout_s)
 
 #: Models that reject ``temperature`` and require ``max_completion_tokens``.
 _REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5")
@@ -49,7 +60,10 @@ class OpenAIClient(BaseLLMClient):
         self._client = OpenAI(
             api_key=api_key or self.settings.openai_api_key,
             base_url=base_url or self.settings.openai_base_url,
-            timeout=self.settings.request_timeout_s,
+            # Short connect timeout, generous read timeout. A single shared budget
+            # would make an unreachable endpoint hang for minutes before the
+            # fallback provider engages.
+            timeout=_llm_timeout(self.settings),
             max_retries=0,  # the base class owns retry policy and accounting
         )
 

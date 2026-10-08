@@ -513,3 +513,111 @@ def default_signing_deadline(days: int = 14) -> date:
 
 
 AnnotatedGoal = Annotated[str, Field(min_length=3)]
+
+
+# --------------------------------------------------------------------------------------
+# Severity calibration policy
+# --------------------------------------------------------------------------------------
+
+#: Finding categories that may block a contract.
+#:
+#: Only defects that make an agreement unenforceable or expose a party to material
+#: loss belong here. A judge model reliably identifies *what* is wrong but is
+#: inconsistent about *how much it matters* — the same draft drew HIGH and CRITICAL
+#: ratings on different runs for comparable issues. Deriving the blocking decision
+#: from the category rather than from the model's severity label makes the gate
+#: reproducible.
+BLOCKING_CATEGORIES: frozenset[FindingCategory] = frozenset(
+    {
+        FindingCategory.HALLUCINATION,  # a fabricated citation
+        FindingCategory.MISSING_CLAUSE,  # a mandatory clause absent
+        FindingCategory.COMMERCIAL_RISK,  # payment arithmetic or unbounded liability
+        FindingCategory.SCOPE_DRIFT,  # the contract contradicts the plan
+    }
+)
+
+#: Severity ceiling applied to advisory categories when the model over-escalates.
+ADVISORY_SEVERITY_CEILING = Severity.MEDIUM
+
+
+def calibrate_severity(finding: CriticFinding) -> CriticFinding:
+    """Cap the severity of advisory findings so they cannot block a contract.
+
+    Returns the finding unchanged when its category is genuinely blocking.
+    """
+    if finding.category in BLOCKING_CATEGORIES:
+        return finding
+    if finding.severity.weight > ADVISORY_SEVERITY_CEILING.weight:
+        finding.severity = ADVISORY_SEVERITY_CEILING
+    return finding
+
+
+#: Words too generic to identify a clause topic.
+_CLAUSE_TOPIC_STOPWORDS = frozenset(
+    {
+        "clause", "clauses", "section", "sections", "contract", "agreement", "sow",
+        "missing", "absent", "include", "includes", "including", "require", "required",
+        "requires", "address", "addresses", "addressing", "provide", "provides",
+        "statement", "work", "document", "does", "not", "the", "and", "for", "with",
+        "that", "this", "which", "from", "into", "under", "上述", "must", "should",
+    }
+)
+
+
+def clause_topic_terms(text: str, *, limit: int = 6) -> list[str]:
+    """Extract the significant topic words from a finding description."""
+    import re
+
+    words = re.findall(r"[a-z][a-z\-]{3,}", (text or "").casefold())
+    return [w for w in dict.fromkeys(words) if w not in _CLAUSE_TOPIC_STOPWORDS][:limit]
+
+
+def verify_missing_clause_findings(
+    document: SOWDocument, findings: list[CriticFinding]
+) -> tuple[list[CriticFinding], list[str]]:
+    """Check ``missing_clause`` findings against the document before trusting them.
+
+    A judge model occasionally reports a clause as absent when it is present — observed
+    live: a CRITICAL "does not include a clause addressing governing law and dispute
+    resolution" against a contract whose Clause 25 is titled exactly that, and which
+    blocked the run.
+
+    This is a deterministic cross-check, not a second opinion: the document either
+    contains a clause about the topic or it does not. Confirmed-absent findings pass
+    through untouched; contradicted ones are downgraded to LOW so they inform the
+    reviewer without halting a delivery.
+    """
+    if not findings:
+        return findings, []
+
+    haystack = " ".join(
+        f"{clause.heading} {clause.body}" for clause in document.clauses
+    ).casefold()
+    headings = " ".join(clause.heading for clause in document.clauses).casefold()
+
+    contradicted: list[str] = []
+    for finding in findings:
+        if finding.category is not FindingCategory.MISSING_CLAUSE:
+            continue
+
+        terms = clause_topic_terms(f"{finding.description} {finding.remediation}")
+        if not terms:
+            continue
+
+        # A heading match is decisive; a body match needs a stronger signal.
+        heading_hits = [term for term in terms if term in headings]
+        body_hits = [term for term in terms if term in haystack]
+        confirmed_present = bool(heading_hits) or len(body_hits) >= max(2, len(terms) - 1)
+        if not confirmed_present:
+            continue
+
+        contradicted.append(
+            f"{finding.location}: judge reported '{terms[0]}' missing, but the document "
+            f"covers it (matched: {', '.join(heading_hits or body_hits[:3])})"
+        )
+        finding.severity = Severity.LOW
+        finding.description = (
+            f"[auto-downgraded: the document appears to cover this] {finding.description}"
+        )
+
+    return findings, contradicted

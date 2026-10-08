@@ -8,6 +8,7 @@ never change the outcome of a resolution test.
 from __future__ import annotations
 
 import uuid
+from typing import ClassVar
 
 import pytest
 from pydantic import ValidationError
@@ -947,3 +948,85 @@ def test_partial_configuration_is_reported_per_tier():
     matrix = settings.capability_matrix()
     assert matrix["reasoning"] == "anthropic"
     assert "no key" in matrix["critic"]
+
+
+class TestAnthropicParameterCompatibility:
+    """Newer Claude releases reject `temperature`; the adapter must adapt.
+
+    Verified against the live API: `claude-haiku-5-5` returns
+    ``400 invalid_request_error: `temperature` is deprecated for this model``.
+    Sending it unconditionally broke every Anthropic call in the graph.
+    """
+
+    def test_known_modern_models_reject_temperature(self) -> None:
+        from sowsprint.llm.anthropic_client import rejects_temperature
+
+        assert rejects_temperature("claude-haiku-5-5") is True
+        assert rejects_temperature("claude-sonnet-5-5") is True
+        assert rejects_temperature("claude-opus-5-5") is True
+
+    def test_dated_snapshots_are_matched_by_prefix(self) -> None:
+        from sowsprint.llm.anthropic_client import rejects_temperature
+
+        assert rejects_temperature("claude-haiku-5-5-20260101") is True
+
+    def test_legacy_models_still_accept_temperature(self) -> None:
+        from sowsprint.llm.anthropic_client import rejects_temperature
+
+        assert rejects_temperature("claude-3-5-sonnet") is False
+        assert rejects_temperature("claude-3-haiku") is False
+
+    def test_runtime_rejection_is_learned_and_retried(self, tmp_path) -> None:
+        """An unlisted future model must self-heal rather than fail the run."""
+        from sowsprint.config import Settings
+        from sowsprint.llm.anthropic_client import AnthropicClient, rejects_temperature
+
+        model = "claude-future-9-9"
+        assert rejects_temperature(model) is False
+
+        calls: list[dict] = []
+
+        class FakeMessages:
+            def create(self, **kwargs):
+                calls.append(dict(kwargs))
+                if "temperature" in kwargs:
+                    raise RuntimeError(
+                        "Error code: 400 - `temperature` is deprecated for this model."
+                    )
+
+                class Block:
+                    type = "text"
+                    text = "ok"
+
+                class Usage:
+                    input_tokens = 5
+                    output_tokens = 1
+                    cache_read_input_tokens = 0
+
+                class Response:
+                    content: ClassVar[list] = [Block()]
+                    usage = Usage()
+                    stop_reason = "end_turn"
+
+                return Response()
+
+        class FakeClient:
+            messages = FakeMessages()
+
+        settings = Settings(anthropic_api_key="sk-test", reasoning_model=model)
+        client = AnthropicClient("temp-learn", settings)
+        client._client = FakeClient()
+
+        from sowsprint.llm.base import system, user
+
+        response = client.complete(
+            [system("hi"), user("ping")], node="probe", max_tokens=8
+        )
+
+        assert response.text == "ok"
+        # First attempt carried temperature and was rejected; the retry omitted it.
+        assert len(calls) == 2
+        assert "temperature" in calls[0]
+        assert "temperature" not in calls[1]
+        # The lesson is retained for the rest of the process.
+        assert rejects_temperature(model) is True

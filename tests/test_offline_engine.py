@@ -20,12 +20,14 @@ from sowsprint.llm.offline import (
     triage_offline,
 )
 from sowsprint.models import (
+    CriticFinding,
     CritiqueReport,
     FindingCategory,
     Jurisdiction,
     RequirementScope,
     ScopeStatus,
     Severity,
+    SOWClause,
     SOWDocument,
     TechnicalBlueprint,
 )
@@ -471,3 +473,151 @@ class TestProjectKey:
 
     def test_empty_title_falls_back(self) -> None:
         assert project_key_from_title("") == "SOW"
+
+
+class TestSeverityCalibration:
+    """The blocking decision must not depend on a judge model's severity mood.
+
+    Observed across three live runs: comparable defects drew HIGH on one run and
+    CRITICAL on another, and an unsupported *payment window* was escalated to HIGH —
+    which forced a full contract rewrite and produced no improvement. Category, not
+    the model's label, decides what blocks.
+    """
+
+    @pytest.mark.parametrize(
+        ("category", "severity", "expected"),
+        [
+            (FindingCategory.UNSUPPORTED_CLAIM, Severity.HIGH, Severity.MEDIUM),
+            (FindingCategory.UNSUPPORTED_CLAIM, Severity.CRITICAL, Severity.MEDIUM),
+            (FindingCategory.AMBIGUITY, Severity.CRITICAL, Severity.MEDIUM),
+            (FindingCategory.TEMPLATE_DEVIATION, Severity.HIGH, Severity.MEDIUM),
+        ],
+    )
+    def test_advisory_categories_are_capped(
+        self, category: FindingCategory, severity: Severity, expected: Severity
+    ) -> None:
+        from sowsprint.models import calibrate_severity
+
+        finding = CriticFinding(
+            category=category, severity=severity, location="1", description="d", remediation="r"
+        )
+        calibrated = calibrate_severity(finding)
+        assert calibrated.severity is expected
+        assert calibrated.is_blocking is False
+
+    @pytest.mark.parametrize(
+        "category",
+        [
+            FindingCategory.HALLUCINATION,
+            FindingCategory.MISSING_CLAUSE,
+            FindingCategory.COMMERCIAL_RISK,
+            FindingCategory.SCOPE_DRIFT,
+        ],
+    )
+    def test_blocking_categories_keep_their_severity(
+        self, category: FindingCategory
+    ) -> None:
+        """A fabricated citation or a missing mandatory clause must still stop a run."""
+        from sowsprint.models import calibrate_severity
+
+        finding = CriticFinding(
+            category=category,
+            severity=Severity.CRITICAL,
+            location="1",
+            description="d",
+            remediation="r",
+        )
+        assert calibrate_severity(finding).severity is Severity.CRITICAL
+        assert calibrate_severity(finding).is_blocking is True
+
+    def test_low_severity_is_never_raised(self) -> None:
+        from sowsprint.models import calibrate_severity
+
+        finding = CriticFinding(
+            category=FindingCategory.AMBIGUITY,
+            severity=Severity.LOW,
+            location="1",
+            description="d",
+            remediation="r",
+        )
+        assert calibrate_severity(finding).severity is Severity.LOW
+
+
+class TestJudgeSanityCheck:
+    """A judge that reports a present clause as absent must not halt the run.
+
+    Observed live: a CRITICAL "the contract does not include a clause addressing
+    governing law and dispute resolution" was raised against a contract whose
+    Clause 25 is titled exactly that.
+    """
+
+    @staticmethod
+    def _document() -> SOWDocument:
+        return SOWDocument(
+            title="T",
+            client_name="C",
+            vendor_name="V",
+            clauses=[
+                SOWClause(
+                    number="25",
+                    heading="Governing Law and Dispute Resolution",
+                    body="This SOW is governed by the laws of Germany; disputes go to Berlin.",
+                ),
+                SOWClause(number="1", heading="Definitions", body="Terms used herein."),
+            ],
+        )
+
+    def test_contradicted_finding_is_downgraded(self) -> None:
+        from sowsprint.models import verify_missing_clause_findings
+
+        finding = CriticFinding(
+            category=FindingCategory.MISSING_CLAUSE,
+            severity=Severity.CRITICAL,
+            location="global",
+            description=(
+                "The contract does not include a clause addressing the governing law "
+                "and dispute resolution as required by the template."
+            ),
+            remediation="Add a governing law and dispute resolution clause.",
+        )
+        findings, notes = verify_missing_clause_findings(self._document(), [finding])
+
+        assert findings[0].severity is Severity.LOW
+        assert findings[0].is_blocking is False
+        assert notes and "governing" in notes[0]
+        assert "auto-downgraded" in findings[0].description
+
+    def test_genuinely_absent_clause_still_blocks(self) -> None:
+        from sowsprint.models import verify_missing_clause_findings
+
+        finding = CriticFinding(
+            category=FindingCategory.MISSING_CLAUSE,
+            severity=Severity.CRITICAL,
+            location="global",
+            description="The contract omits a force majeure clause entirely.",
+            remediation="Add a force majeure clause.",
+        )
+        findings, notes = verify_missing_clause_findings(self._document(), [finding])
+
+        assert findings[0].severity is Severity.CRITICAL
+        assert findings[0].is_blocking is True
+        assert notes == []
+
+    def test_non_missing_clause_findings_are_untouched(self) -> None:
+        from sowsprint.models import verify_missing_clause_findings
+
+        finding = CriticFinding(
+            category=FindingCategory.HALLUCINATION,
+            severity=Severity.CRITICAL,
+            location="25",
+            description="Cites evidence id 'eu-nope' which does not exist.",
+            remediation="Remove the citation.",
+        )
+        findings, notes = verify_missing_clause_findings(self._document(), [finding])
+        assert findings[0].severity is Severity.CRITICAL
+        assert notes == []
+
+    def test_empty_input_is_safe(self) -> None:
+        from sowsprint.models import verify_missing_clause_findings
+
+        assert verify_missing_clause_findings(self._document(), []) == ([], [])

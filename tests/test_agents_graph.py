@@ -612,3 +612,79 @@ class TestStateContract:
 
     def test_max_clarification_rounds_is_bounded(self) -> None:
         assert 1 <= MAX_CLARIFICATION_ROUNDS <= 5
+
+
+class TestCriticRoutingInTheRealApplication:
+    """The Critic must reach its configured provider through ScopingSession.
+
+    Regression guard: ScopingSession used to pass its own resolved client into
+    AgentNodes, which AgentNodes interprets as "the caller owns provider selection".
+    That branch was therefore always taken, the independent Critic client was never
+    built, and SOWSPRINT_CRITIC_PROVIDER silently had no effect in the application —
+    while still working when AgentNodes was constructed directly in a test.
+    """
+
+    def test_session_builds_a_separate_critic_client(
+        self, settings: Settings, mini_pipeline: RagPipeline
+    ) -> None:
+        from sowsprint.config import LLMProvider
+
+        # A unique session id: `get_session_client` caches by session id alone, so
+        # reusing the shared fixture id would hand back a client built from an
+        # earlier test's settings.
+        session_id = "critic-routing-session"
+
+        routed = settings.model_copy(
+            update={
+                "anthropic_api_key": "sk-ant-fake",
+                "openai_api_key": "sk-oai-fake",
+                "llm_provider": LLMProvider.ANTHROPIC,
+                "critic_provider": LLMProvider.OPENAI,
+                "reasoning_model": "claude-haiku-5-5",
+                "critic_model": "gpt-4o-mini",
+            }
+        )
+        tracker.drop_ledger(session_id)
+        session = ScopingSession(session_id, settings=routed, pipeline=mini_pipeline)
+
+        assert session.nodes.client.provider == "anthropic"
+        assert session.nodes.critic_client.provider == "openai"
+        assert session.nodes.client is not session.nodes.critic_client
+        assert session.nodes.critic_client.default_model("critic") == "gpt-4o-mini"
+
+    def test_an_injected_client_still_serves_every_node(
+        self, settings: Settings, mini_pipeline: RagPipeline
+    ) -> None:
+        """Explicit injection is a deliberate override and must keep working."""
+        from sowsprint.llm.offline import OfflineLLMClient
+
+        session_id = "critic-injection-session"
+
+        tracker.drop_ledger(session_id)
+        injected = OfflineLLMClient(session_id, settings)
+        session = ScopingSession(
+            session_id, settings=settings, pipeline=mini_pipeline, client=injected
+        )
+        assert session.nodes.client is injected
+        assert session.nodes.critic_client is injected
+
+
+class TestPerNodeOutputBudgets:
+    """One global max_tokens cannot serve both a scope summary and a full backlog."""
+
+    def test_large_nodes_get_a_generous_budget(self, session_id: str) -> None:
+        from sowsprint.llm.factory import NODE_MAX_TOKENS, ModelRouter
+
+        router = ModelRouter(session_id)
+        assert router.max_tokens_for("architect") >= 8_000
+        assert router.max_tokens_for("legal") >= 8_000
+        assert router.max_tokens_for("tools") >= 8_000
+        # A small, bounded node should not inherit the large budget.
+        assert router.max_tokens_for("triage") < router.max_tokens_for("architect")
+        assert NODE_MAX_TOKENS["critic"] >= 4_000
+
+    def test_unknown_nodes_fall_back_to_the_configured_floor(self, session_id: str) -> None:
+        from sowsprint.llm.factory import ModelRouter
+
+        router = ModelRouter(session_id)
+        assert router.max_tokens_for("something-new") >= router.settings.max_tokens

@@ -37,6 +37,8 @@ from ..models import (
     ScopeStatus,
     SOWDocument,
     TechnicalBlueprint,
+    calibrate_severity,
+    verify_missing_clause_findings,
 )
 from ..observability.logging import get_logger
 from ..rag.pipeline import RagPipeline, get_pipeline
@@ -203,7 +205,11 @@ class AgentNodes:
                 round_number=int(state.get("triage_rounds", 0)),
             )
             response = self.client.complete(
-                messages, schema=RequirementScope, node="triage", tier=self.router.tier_for("triage")
+                messages,
+                schema=RequirementScope,
+                node="triage",
+                tier=self.router.tier_for("triage"),
+                max_tokens=self.router.max_tokens_for("triage"),
             )
         except (BudgetExceededError, LLMError) as exc:
             return self._halt(state, exc, "triage")
@@ -289,7 +295,11 @@ class AgentNodes:
                 round_number=int(state.get("triage_rounds", 0)),
             )
             response = self.client.complete(
-                messages, schema=RequirementScope, node="triage", tier=self.router.tier_for("triage")
+                messages,
+                schema=RequirementScope,
+                node="triage",
+                tier=self.router.tier_for("triage"),
+                max_tokens=self.router.max_tokens_for("triage"),
             )
         except (BudgetExceededError, LLMError) as exc:
             return self._halt(state, exc, "clarify")
@@ -375,6 +385,7 @@ class AgentNodes:
                 schema=TechnicalBlueprint,
                 node="architect",
                 tier=self.router.tier_for("architect"),
+                max_tokens=self.router.max_tokens_for("architect"),
             )
         except (BudgetExceededError, LLMError) as exc:
             return self._halt(state, exc, "architect")
@@ -454,7 +465,11 @@ class AgentNodes:
                 previous_draft=state.get("draft_sow") if is_repair else None,
             )
             response = self.client.complete(
-                messages, schema=SOWDocument, node="legal", tier=self.router.tier_for("legal")
+                messages,
+                schema=SOWDocument,
+                node="legal",
+                tier=self.router.tier_for("legal"),
+                max_tokens=self.router.max_tokens_for("legal"),
             )
         except (BudgetExceededError, LLMError) as exc:
             return self._halt(state, exc, "legal")
@@ -511,6 +526,7 @@ class AgentNodes:
                 schema=CritiqueReport,
                 node="critic",
                 tier=self.router.tier_for("critic"),
+                max_tokens=self.router.max_tokens_for("critic"),
             )
         except (BudgetExceededError, LLMError) as exc:
             return self._halt(state, exc, "critic")
@@ -520,6 +536,35 @@ class AgentNodes:
             return self._halt(state, LLMError("Critic returned no valid CritiqueReport"), "critic")
 
         report.attempt = attempt
+
+        # Calibrate severity before the verdict is trusted. A judge model is reliable
+        # about *what* is wrong and inconsistent about *how much it matters*, so the
+        # blocking decision comes from the finding category rather than from the
+        # model's own severity label.
+        original_blocking = len(report.blocking_findings)
+        report.findings = [calibrate_severity(f) for f in report.findings]
+
+        # Then cross-check any 'missing clause' claim against the document itself.
+        # A judge can report a clause absent when it is present, and a CRITICAL such
+        # finding halts the run for nothing.
+        draft = _validate_sow(state.get("draft_sow"))
+        if draft is not None:
+            report.findings, contradicted = verify_missing_clause_findings(
+                draft, report.findings
+            )
+            if contradicted:
+                log.warning("critic.missing_clause_contradicted", notes=contradicted)
+
+        if len(report.blocking_findings) != original_blocking:
+            report.passed = not report.blocking_findings and report.quality_score >= 0.72
+            log.info(
+                "critic.severity_calibrated",
+                node="critic",
+                before=original_blocking,
+                after=len(report.blocking_findings),
+                passed=report.passed,
+            )
+
         duration = (time.perf_counter() - started) * 1000.0
         return {
             "critique": report.model_dump(mode="json"),
@@ -804,3 +849,12 @@ def make_routers() -> dict[str, Callable[[GraphState], str]]:
 def is_waiting(state: GraphState) -> bool:
     """True when the graph has handed control back to the human."""
     return str(state.get("status", "")) in WAITING_STATUSES
+
+def _validate_sow(payload: Any) -> SOWDocument | None:
+    """Re-validate the drafted contract from graph state, tolerating absence."""
+    if not payload:
+        return None
+    try:
+        return SOWDocument.model_validate(payload)
+    except Exception:
+        return None

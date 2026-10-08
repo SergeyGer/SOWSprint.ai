@@ -8,13 +8,47 @@ normalises: the system prompt is a top-level argument rather than a message role
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Sequence
 from typing import Any, ClassVar
 
+import httpx
 from anthropic import Anthropic
 
 from ..config import Settings
-from .base import BaseLLMClient, Message
+from .base import BaseLLMClient, Message, get_logger
+
+log = get_logger(__name__)
+
+#: Models known to reject the ``temperature`` parameter. Newer Claude releases
+#: deprecate it in favour of adaptive thinking. This is a *cache*, not the source of
+#: truth: a model that rejects it at runtime is added automatically and the request is
+#: retried without it, so an unlisted future release still works with no code change.
+_TEMPERATURE_REJECTING: set[str] = {
+    "claude-haiku-5-5",
+    "claude-sonnet-5-5",
+    "claude-opus-5-5",
+    "claude-fable-5-1",
+}
+_TEMPERATURE_LOCK = threading.Lock()
+
+
+def rejects_temperature(model: str) -> bool:
+    """True when ``temperature`` must be omitted for this model.
+
+    Matches on prefix so dated snapshots (``claude-haiku-5-5-20260101``) are caught
+    without enumerating every release.
+    """
+    needle = model.strip().lower()
+    with _TEMPERATURE_LOCK:
+        return any(needle.startswith(known) for known in _TEMPERATURE_REJECTING)
+
+
+def remember_temperature_rejection(model: str) -> None:
+    """Record that this model rejects ``temperature``, for the rest of the process."""
+    needle = model.strip().lower()
+    with _TEMPERATURE_LOCK:
+        _TEMPERATURE_REJECTING.add(needle)
 
 
 class AnthropicClient(BaseLLMClient):
@@ -36,7 +70,11 @@ class AnthropicClient(BaseLLMClient):
         super().__init__(session_id, settings)
         kwargs: dict[str, Any] = {
             "api_key": self.settings.anthropic_api_key,
-            "timeout": self.settings.request_timeout_s,
+            # Split budgets: fail fast on an unreachable endpoint, wait patiently for
+            # a long structured completion.
+            "timeout": httpx.Timeout(
+                self.settings.request_timeout_s, connect=self.settings.connect_timeout_s
+            ),
             "max_retries": 0,
         }
         if self.settings.anthropic_base_url:
@@ -62,13 +100,29 @@ class AnthropicClient(BaseLLMClient):
         if not turns:
             turns = [{"role": "user", "content": system_prompt or "Proceed."}]
 
-        response = self._client.messages.create(
-            model=model,
-            system=system_prompt or None,
-            messages=turns,  # type: ignore[arg-type]
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
+        request: dict[str, Any] = {
+            "model": model,
+            "system": system_prompt or None,
+            "messages": turns,
+            "max_tokens": max_tokens,
+        }
+        if not rejects_temperature(model):
+            request["temperature"] = temperature
+
+        try:
+            response = self._client.messages.create(**request)
+        except Exception as exc:
+            # Newer Claude releases deprecate `temperature` in favour of adaptive
+            # thinking, and the set of such models grows with every release. Rather
+            # than maintain a hard-coded list that rots, learn from the API once and
+            # retry immediately — the caller never sees the failure.
+            if "temperature" in request and "temperature" in str(exc).lower():
+                log.info("anthropic.temperature_unsupported", model=model, node=node)
+                remember_temperature_rejection(model)
+                request.pop("temperature")
+                response = self._client.messages.create(**request)
+            else:
+                raise
 
         text = "".join(
             block.text for block in response.content if getattr(block, "type", "") == "text"

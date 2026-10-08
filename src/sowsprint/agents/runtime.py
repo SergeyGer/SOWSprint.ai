@@ -144,10 +144,17 @@ class ScopingSession:
         self.pipeline = pipeline or get_pipeline(self.settings)
         self.registry = registry or build_default_registry()
 
-        # `nodes` owns the per-tier clients, including the independent Critic.
+        # Pass through the *caller-supplied* client, not the resolved one.
+        #
+        # AgentNodes treats a non-None client as "the caller owns provider selection,
+        # use it for every node" — which is what tests and custom wiring want. Passing
+        # `self.client` here meant that branch was always taken, so the independently
+        # routed Critic client was never constructed and `SOWSPRINT_CRITIC_PROVIDER`
+        # had no effect in the real application. Only an explicitly injected client
+        # should suppress per-tier routing.
         self.nodes = AgentNodes(
             session_id,
-            client=self.client,
+            client=client,
             pipeline=self.pipeline,
             registry=self.registry,
             settings=self.settings,

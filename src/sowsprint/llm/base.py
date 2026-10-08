@@ -31,6 +31,12 @@ from .parsing import loads_lenient
 log = get_logger(__name__)
 
 Role = Literal["system", "user", "assistant"]
+
+#: Provider stop reasons meaning "the output hit the token ceiling".
+_TRUNCATION_REASONS = frozenset({"max_tokens", "length", "max_output_tokens"})
+
+#: Hard ceiling for automatic output-budget escalation on truncation.
+MAX_OUTPUT_TOKENS = 64_000
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
@@ -281,22 +287,53 @@ class BaseLLMClient(ABC):
             if schema is not None:
                 parsed = self._validate(text, schema)
                 if parsed is None:
+                    # Distinguish "the model answered badly" from "we cut it off".
+                    # Retrying a truncated response at the same budget reproduces the
+                    # truncation exactly, so the correction prompt below would burn
+                    # attempts for nothing. Escalate the budget instead.
+                    finish_reason = str(usage.get("finish_reason") or "").lower()
+                    truncated = finish_reason in _TRUNCATION_REASONS
+
+                    if truncated and resolved_max_tokens < MAX_OUTPUT_TOKENS:
+                        escalated = min(resolved_max_tokens * 2, MAX_OUTPUT_TOKENS)
+                        log.warning(
+                            "llm.output_truncated",
+                            provider=self.provider,
+                            model=resolved_model,
+                            node=node,
+                            schema=schema.__name__,
+                            attempt=attempt,
+                            from_tokens=resolved_max_tokens,
+                            to_tokens=escalated,
+                        )
+                        resolved_max_tokens = escalated
+                        continue
+
                     last_error = StructuredOutputError(
                         f"{self.provider} returned output that does not satisfy "
                         f"{schema.__name__}"
+                        + (
+                            f" (truncated at the {resolved_max_tokens}-token ceiling)"
+                            if truncated
+                            else ""
+                        )
                     )
                     log.warning(
                         "llm.schema_invalid",
                         provider=self.provider,
+                        model=resolved_model,
                         node=node,
+                        schema=schema.__name__,
                         attempt=attempt,
+                        truncated=truncated,
                         preview=text[:400],
                     )
                     if attempt < self.settings.max_retries:
                         prepared = self._append_to_system(
                             prepared,
                             "\n\n## Correction\nYour previous reply was not valid JSON "
-                            "matching the schema. Reply with ONLY the JSON object.",
+                            "matching the schema. Reply with ONLY the JSON object, and "
+                            "keep it complete.",
                         )
                         continue
                     raise last_error
