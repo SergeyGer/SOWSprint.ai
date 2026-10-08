@@ -133,7 +133,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify the live SOWSprint Chainlit UI")
     parser.add_argument("--url", default="http://127.0.0.1:8000")
     parser.add_argument("--timeout", type=float, default=180.0)
-    parser.add_argument("--jurisdiction", default="EU")
+    parser.add_argument(
+        "--jurisdiction",
+        default=None,
+        choices=["EU", "US", "BOTH"],
+        help="Override the UI compliance regime for this run.",
+    )
     args = parser.parse_args(argv)
 
     import socketio
@@ -169,6 +174,10 @@ def main(argv: list[str] | None = None) -> int:
         transports=["websocket", "polling"],
     )
     print("✓ socket connected")
+
+    if args.jurisdiction:
+        client.emit("chat_settings_change", {"jurisdiction": args.jurisdiction})
+        print(f"✓ compliance regime set to {args.jurisdiction}")
 
     client.emit("connection_successful")
     _wait_for(lambda: any("SOWSprint" in t for t in collector.assistant_texts()), 60, collector)

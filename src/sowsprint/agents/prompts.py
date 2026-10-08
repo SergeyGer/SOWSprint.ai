@@ -197,6 +197,30 @@ def build_legal_messages(
         render_tagged("evidence", evidence or "(no evidence retrieved)"),
     ]
 
+    if str(jurisdiction).upper() == "BOTH":
+        blocks += [
+            "",
+            "## Dual-regime engagement",
+            "",
+            "This contract must satisfy BOTH regimes simultaneously. Each evidence",
+            "passage is tagged with its own `jurisdiction=`; use EU passages for EU",
+            "obligations and US passages for US obligations, and cite at least one",
+            "passage from EACH regime in the data-protection and liability clauses.",
+            "",
+            "Draft the clauses that only exist when the two regimes meet:",
+            "- **Dual-Regime Compliance and Order of Precedence** — how the two sets of",
+            "  obligations coexist and who owns compliance for each.",
+            "- **Cross-Border Data Transfers and Transfer Mechanisms** — adequacy, the",
+            "  Standard Contractual Clauses, the EU-U.S. Data Privacy Framework, and",
+            "  transfer impact assessments.",
+            "- **Conflicting Obligations and Stricter-Standard Rule** — where the regimes",
+            "  differ, the stricter standard governs; give at least one worked example",
+            "  (breach-notification timing is the clearest).",
+            "",
+            "Do not resolve a conflict by silently choosing one regime. State the rule",
+            "that resolves it.",
+        ]
+
     if critique:
         blocks += [
             "",
@@ -296,6 +320,19 @@ def build_critic_messages(
     ]
     if blueprint:
         blocks += ["", render_tagged("blueprint", blueprint)]
+    if str(jurisdiction).upper() == "BOTH":
+        blocks += [
+            "",
+            "## Dual-regime audit",
+            "",
+            "This contract is bound by BOTH regimes. In addition to the standard checks:",
+            "- Both required-clause sets must be present; verify the union, not one side.",
+            "- The conflict clause must state a resolution rule. A contract that is silent",
+            "  on what happens when the regimes disagree fails this audit.",
+            "- Data-protection obligations must be satisfiable under both regimes at once.",
+            "  Treat an obligation that is lawful in one regime and unlawful in the other,",
+            "  with no reconciliation, as COMMERCIAL_RISK.",
+        ]
     blocks += ["", render_tagged("attempt", str(attempt))]
     return [system(CRITIC_SYSTEM), user("\n".join(blocks))]
 

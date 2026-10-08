@@ -21,7 +21,6 @@ path declarative instead of scattering exception handlers through the graph.
 
 from __future__ import annotations
 
-import contextlib
 import time
 from collections.abc import Callable
 from typing import Any
@@ -221,9 +220,9 @@ class AgentNodes:
         # Trust the UI toggle over model inference: the operator chose the regime.
         requested = state.get("jurisdiction")
         if requested:
-            # An unrecognised toggle value must not discard a valid inferred regime.
-            with contextlib.suppress(ValueError):
-                scope.jurisdiction = Jurisdiction(requested)
+            # Tolerates UI variants ("EU+US", "dual", lowercase). An unrecognised value
+            # must not discard a valid inferred regime, so coerce falls back quietly.
+            scope.jurisdiction = Jurisdiction.coerce(requested, default=scope.jurisdiction)
 
         duration = (time.perf_counter() - started) * 1000.0
         update: dict[str, Any] = {
@@ -310,9 +309,9 @@ class AgentNodes:
 
         requested = state.get("jurisdiction")
         if requested:
-            # An unrecognised toggle value must not discard a valid inferred regime.
-            with contextlib.suppress(ValueError):
-                scope.jurisdiction = Jurisdiction(requested)
+            # Tolerates UI variants ("EU+US", "dual", lowercase). An unrecognised value
+            # must not discard a valid inferred regime, so coerce falls back quietly.
+            scope.jurisdiction = Jurisdiction.coerce(requested, default=scope.jurisdiction)
 
         rounds = int(state.get("triage_rounds", 0)) + 1
         exhausted = rounds >= MAX_CLARIFICATION_ROUNDS
@@ -446,7 +445,9 @@ class AgentNodes:
             blueprint = (
                 TechnicalBlueprint.model_validate(blueprint_payload) if blueprint_payload else None
             )
-            jurisdiction = Jurisdiction(state.get("jurisdiction") or scope.jurisdiction.value)
+            jurisdiction = Jurisdiction.coerce(
+                state.get("jurisdiction") or scope.jurisdiction, default=scope.jurisdiction
+            )
             result = self.pipeline.retrieve_for_scope(scope, blueprint, jurisdiction=jurisdiction)
             evidence = result.render_evidence()
             retrieval_diag = result.diagnostics.as_dict() if result.diagnostics else {}
@@ -478,7 +479,9 @@ class AgentNodes:
         if not isinstance(sow, SOWDocument):
             return self._halt(state, LLMError("Legal returned no valid SOWDocument"), "legal", Stage.LEGAL)
 
-        sow.jurisdiction = Jurisdiction(state.get("jurisdiction") or sow.jurisdiction.value)
+        sow.jurisdiction = Jurisdiction.coerce(
+            state.get("jurisdiction") or sow.jurisdiction, default=sow.jurisdiction
+        )
         duration = (time.perf_counter() - started) * 1000.0
         return {
             "draft_sow": sow.model_dump(mode="json"),

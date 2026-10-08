@@ -116,6 +116,7 @@ def _settings() -> Settings:
 
 
 def _jurisdiction() -> str:
+    """Active compliance regime for this session."""
     return cl.user_session.get("jurisdiction") or _settings().default_jurisdiction
 
 
@@ -125,9 +126,16 @@ def _session() -> ScopingSession | None:
 
 def _chip(jurisdiction: str) -> str:
     """Render the active compliance regime as a readable label."""
-    if jurisdiction == "US":
-        return "🇺🇸 **United States** — SEC & Delaware corporate law"
-    return "🇪🇺 **European Union** — GDPR & EU AI Act"
+    from sowsprint.models import Jurisdiction
+
+    return {
+        Jurisdiction.EU: "🇪🇺 **European Union (Germany)** — GDPR & EU AI Act",
+        Jurisdiction.US: "🇺🇸 **United States** — SEC, Delaware & CCPA",
+        Jurisdiction.BOTH: (
+            "🇪🇺🇺🇸 **Dual regime** — satisfies EU (GDPR & AI Act) *and* "
+            "US (SEC, Delaware, CCPA) simultaneously"
+        ),
+    }[Jurisdiction.coerce(jurisdiction)]
 
 
 def _capability_block() -> str:
@@ -593,11 +601,15 @@ async def on_chat_start() -> None:
             cl.input_widget.Select(
                 id="jurisdiction",
                 label="Compliance regime",
-                values=["EU", "US"],
+                values=["EU", "US", "BOTH"],
                 initial_value=settings.default_jurisdiction,
                 description=(
-                    "EU: GDPR + EU AI Act · US: SEC + Delaware corporate law. "
-                    "Enforced as a metadata filter inside the vector engine."
+                    "EU — GDPR & EU AI Act (German/EU entities). "
+                    "US — SEC, Delaware & CCPA. "
+                    "BOTH — one contract bound by both regimes, with a "
+                    "stricter-standard rule for conflicts. Enforced as a metadata "
+                    "filter inside the vector engine, and evidence is drawn from "
+                    "each selected regime in equal measure."
                 ),
             ),
             cl.input_widget.Slider(
@@ -630,7 +642,9 @@ async def on_chat_start() -> None:
 @cl.on_settings_update
 async def on_settings_update(settings: dict[str, Any]) -> None:
     """Apply UI settings changes to the live session configuration."""
-    jurisdiction = str(settings.get("jurisdiction", "EU")).upper()
+    from sowsprint.models import Jurisdiction
+
+    jurisdiction = Jurisdiction.coerce(settings.get("jurisdiction", "EU")).value
     cl.user_session.set("jurisdiction", jurisdiction)
     cl.user_session.set("auto_deploy", bool(settings.get("auto_deploy", False)))
     cl.user_session.set("dry_run_integrations", bool(settings.get("dry_run_integrations", True)))
@@ -644,7 +658,7 @@ async def on_settings_update(settings: dict[str, Any]) -> None:
 
     await cl.Message(
         content=(
-            f"⚙️ Settings applied — compliance regime **{jurisdiction}**, "
+            f"⚙️ Settings applied — {_chip(jurisdiction)}, "
             f"budget **${budget:.2f}**"
             + (", integrations **dry-run**" if settings.get("dry_run_integrations") else ", integrations **live**")
             + ("." if not settings.get("auto_deploy") else ", approval gate **skipped**.")

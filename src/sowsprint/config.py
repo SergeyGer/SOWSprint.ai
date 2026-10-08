@@ -175,7 +175,7 @@ class Settings(BaseSettings):
     chunk_size: int = 1100
     chunk_overlap: int = 150
 
-    default_jurisdiction: Literal["EU", "US"] = "EU"
+    default_jurisdiction: Literal["EU", "US", "BOTH"] = "EU"
 
     # ---------------------------------------------------------------- guardrails
     max_critic_retries: int = 1

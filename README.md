@@ -122,11 +122,11 @@ functional. There is a regression test for exactly this
 every routing function checks it and diverts to `END`, instead of exception handlers
 scattered through the graph.
 
-### 2. Compliance-aware Advanced RAG (EU vs US)
+### 2. Compliance-aware Advanced RAG — EU, US, or both at once
 
-The jurisdiction toggle is not a prompt hint. It is a **metadata filter pushed into the
-vector engine on both retrieval arms**, so a clause from the wrong regime can never
-reach the candidate pool:
+Three regimes are selectable from the UI, and the choice is not a prompt hint. It is a
+**metadata filter pushed into the vector engine on both retrieval arms**, so a clause
+from an unselected regime can never reach the candidate pool:
 
 ```python
 # src/sowsprint/rag/schema.py
@@ -143,6 +143,22 @@ Pipeline: `dense (cosine) ∥ sparse (BM25) → RRF fusion → cross-encoder rer
 | Fusion | Reciprocal Rank Fusion, k=60 | Cosine ∈ [-1,1] and BM25 is unbounded; RRF fuses *ranks*, so no score calibration is needed |
 | Rerank | Heuristic cross-encoder surrogate offline; BGE via TEI or Cohere when configured | Fusion optimises recall; reranking optimises the finite context budget |
 | Multi-topic | One query per clause topic, excluding already-seen chunks | A single blended query lets GDPR passages crowd out the liability cap |
+| Dual regime | Every topic run against **both** regimes, results interleaved | A blended query is regime-skewed, and the skew is invisible — the contract just omits the quieter regime |
+
+**Dual-regime contracts (EU + US).** A US parent processing EU personal data is bound by
+GDPR *and* SEC disclosure duties at once. Selecting **BOTH** produces a single contract
+that satisfies both, adding three clauses that only exist when the regimes meet:
+
+| Clause | Purpose |
+| :-- | :-- |
+| Dual-Regime Compliance and Order of Precedence | How the two obligation sets coexist, and who owns compliance for each |
+| Cross-Border Data Transfers and Transfer Mechanisms | Adequacy, SCCs, the EU-U.S. Data Privacy Framework, transfer impact assessments |
+| Conflicting Obligations and Stricter-Standard Rule | The resolution rule, with a worked example (breach-notification timing) |
+
+Conflicts are resolved by an explicit **stricter-standard rule** rather than by silently
+choosing a side — an unstated resolution rule is exactly the gap that becomes a dispute.
+Evidence is drawn from each selected regime in equal measure: a dual run returns 6 EU +
+6 US passages, verified by test.
 
 Corpus: **69 entries → 141 chunks (70 EU / 71 US)**, adapted from the Atticus Project
 CUAD categories and the Pile of Law, covering GDPR, the EU AI Act, CCPA/CPRA, HIPAA,

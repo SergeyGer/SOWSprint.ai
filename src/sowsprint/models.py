@@ -24,17 +24,69 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class Jurisdiction(str, Enum):
-    """Compliance regime driving retrieval-time metadata filtering."""
+    """Compliance regime driving retrieval-time metadata filtering.
+
+    ``BOTH`` exists because the most common transatlantic engagement is neither purely
+    European nor purely American: a US parent processing EU personal data is subject to
+    GDPR *and* SEC disclosure duties at once, and a contract satisfying only one regime
+    is not a partial success — it is unenforceable in the other.
+    """
 
     EU = "EU"
     US = "US"
+    BOTH = "BOTH"
 
     @property
     def label(self) -> str:
         return {
             Jurisdiction.EU: "European Union — GDPR & EU AI Act",
             Jurisdiction.US: "United States — SEC & Delaware corporate law",
+            Jurisdiction.BOTH: (
+                "Dual regime — EU (GDPR & EU AI Act) and US (SEC, Delaware, CCPA)"
+            ),
         }[self]
+
+    @property
+    def short_label(self) -> str:
+        return {
+            Jurisdiction.EU: "EU",
+            Jurisdiction.US: "US",
+            Jurisdiction.BOTH: "EU + US",
+        }[self]
+
+    @property
+    def regimes(self) -> tuple[Jurisdiction, ...]:
+        """The concrete regimes this selection covers.
+
+        ``BOTH`` expands to its two members and the single-regime values return
+        themselves, so callers iterate uniformly without special-casing.
+        """
+        if self is Jurisdiction.BOTH:
+            return (Jurisdiction.EU, Jurisdiction.US)
+        return (self,)
+
+    @classmethod
+    def coerce(cls, value: object, default: Jurisdiction | None = None) -> Jurisdiction:
+        """Parse a UI value, tolerating case, spacing and common aliases."""
+        if isinstance(value, cls):
+            return value
+        fallback = default or cls.EU
+        if value is None:
+            return fallback
+        text = str(value).strip().upper().replace(" ", "").replace("+", "")
+        return {
+            "EU": cls.EU,
+            "EUROPE": cls.EU,
+            "GERMANY": cls.EU,
+            "DE": cls.EU,
+            "US": cls.US,
+            "USA": cls.US,
+            "UNITEDSTATES": cls.US,
+            "BOTH": cls.BOTH,
+            "EUUS": cls.BOTH,
+            "DUAL": cls.BOTH,
+            "ALL": cls.BOTH,
+        }.get(text, fallback)
 
 
 class ScopeStatus(str, Enum):

@@ -48,6 +48,16 @@ JURISDICTION_QUERY_EXPANSION: dict[Jurisdiction, list[str]] = {
         "Delaware", "DGCL", "fiduciary duty", "indemnification", "work product",
         "governing law", "venue", "limitation of liability", "termination",
     ],
+    # Dual-regime: the sparse arm needs vocabulary from both sides, plus the transfer
+    # and conflict concepts that only exist when the two regimes meet.
+    Jurisdiction.BOTH: [
+        "GDPR", "personal data", "controller", "processor", "data subject",
+        "EU AI Act", "high-risk AI", "human oversight",
+        "CCPA", "CPRA", "personal information", "SEC disclosure", "Delaware",
+        "standard contractual clauses", "international transfer", "adequacy",
+        "data privacy framework", "cross-border", "conflict of laws",
+        "governing law", "limitation of liability", "indemnification",
+    ],
 }
 
 #: Focused clause topics the Legal agent retrieves for, one query per topic.
@@ -84,6 +94,7 @@ class RetrievalDiagnostics:
     filter_applied: bool = True
     excluded_by_filter: int = 0
     topic: str = ""
+    regimes: list[str] = field(default_factory=list)
 
     @property
     def total_ms(self) -> float:
@@ -109,6 +120,7 @@ class RetrievalDiagnostics:
             "reranker": self.reranker,
             "filter_applied": self.filter_applied,
             "topic": self.topic,
+            "regimes": self.regimes,
         }
 
 
@@ -238,9 +250,15 @@ class ComplianceRetriever:
         topic: str = "",
     ) -> RetrievalResult:
         """Run the full hybrid pipeline under a mandatory jurisdiction filter."""
-        jurisdiction_value = (
-            jurisdiction.value if isinstance(jurisdiction, Jurisdiction) else str(jurisdiction)
+        resolved = Jurisdiction.coerce(jurisdiction)
+        # `BOTH` is a selection, not a stored value: expand it so the query-level
+        # filter matches either member regime.
+        filter_values: str | list[str] = (
+            [r.value for r in resolved.regimes]
+            if resolved is Jurisdiction.BOTH
+            else resolved.value
         )
+        jurisdiction_value = resolved.value
         resolved_top_k = top_k or self.settings.retrieval_top_k
         resolved_final_k = final_k or self.settings.retrieval_final_k
 
@@ -262,7 +280,7 @@ class ComplianceRetriever:
         dense_hits = self.store.search_dense(
             query_vector,
             resolved_top_k,
-            jurisdiction=jurisdiction_value,
+            jurisdiction=filter_values,
             doc_types=doc_types,
             exclude_chunk_ids=exclude_chunk_ids,
         )
@@ -275,7 +293,7 @@ class ComplianceRetriever:
         sparse_hits = self.store.search_sparse(
             sparse_query,
             resolved_top_k,
-            jurisdiction=jurisdiction_value,
+            jurisdiction=filter_values,
             doc_types=doc_types,
             exclude_chunk_ids=exclude_chunk_ids,
         )
@@ -367,36 +385,53 @@ class ComplianceRetriever:
             topic="multi-topic",
         )
 
+        # A dual-regime engagement runs every topic against both regimes and
+        # interleaves the results. A single blended query would let whichever corpus is
+        # larger dominate the candidate pool, and the drafting agent would receive, say,
+        # twelve GDPR passages and nothing on Delaware — silently producing a contract
+        # that satisfies one regime.
+        regimes = resolved.regimes
+
         for topic in topics:
             if len(collected) >= max_chunks:
                 break
-            query = self.build_query(scope, blueprint, resolved, topic=topic)
-            result = self.retrieve(
-                query,
-                jurisdiction=resolved,
-                final_k=per_topic_k,
-                # Excluding what we already hold forces each topic to contribute *new*
-                # passages instead of re-surfacing the same dominant GDPR chunk.
-                exclude_chunk_ids=sorted(seen) or None,
-                topic=topic,
-            )
-            if result.diagnostics:
-                aggregate.dense_candidates += result.diagnostics.dense_candidates
-                aggregate.sparse_candidates += result.diagnostics.sparse_candidates
-                aggregate.fused_candidates += result.diagnostics.fused_candidates
-                aggregate.dense_ms += result.diagnostics.dense_ms
-                aggregate.sparse_ms += result.diagnostics.sparse_ms
-                aggregate.fusion_ms += result.diagnostics.fusion_ms
-                aggregate.rerank_ms += result.diagnostics.rerank_ms
-                aggregate.embed_ms += result.diagnostics.embed_ms
-            for chunk in result.chunks:
-                if chunk.chunk_id in seen:
-                    continue
-                seen.add(chunk.chunk_id)
-                # Tag the passage with the clause topic that surfaced it.
-                chunk.citation = chunk.citation or f"{topic}"
-                collected.append(chunk)
+            per_regime: list[list[RetrievedChunk]] = []
+            for regime in regimes:
+                if len(collected) + sum(len(g) for g in per_regime) >= max_chunks:
+                    break
+                query = self.build_query(scope, blueprint, regime, topic=topic)
+                result = self.retrieve(
+                    query,
+                    jurisdiction=regime,
+                    final_k=per_topic_k,
+                    # Excluding what we already hold forces each topic to contribute
+                    # *new* passages instead of re-surfacing the same dominant chunk.
+                    exclude_chunk_ids=sorted(seen) or None,
+                    topic=f"{topic} [{regime.value}]" if len(regimes) > 1 else topic,
+                )
+                if result.diagnostics:
+                    aggregate.dense_candidates += result.diagnostics.dense_candidates
+                    aggregate.sparse_candidates += result.diagnostics.sparse_candidates
+                    aggregate.fused_candidates += result.diagnostics.fused_candidates
+                    aggregate.dense_ms += result.diagnostics.dense_ms
+                    aggregate.sparse_ms += result.diagnostics.sparse_ms
+                    aggregate.fusion_ms += result.diagnostics.fusion_ms
+                    aggregate.rerank_ms += result.diagnostics.rerank_ms
+                    aggregate.embed_ms += result.diagnostics.embed_ms
+                per_regime.append(result.chunks)
 
+            # Round-robin across regimes so the evidence block alternates.
+            for position in range(max((len(g) for g in per_regime), default=0)):
+                for group in per_regime:
+                    if position < len(group):
+                        chunk = group[position]
+                        if chunk.chunk_id in seen:
+                            continue
+                        seen.add(chunk.chunk_id)
+                        chunk.citation = chunk.citation or topic
+                        collected.append(chunk)
+
+        aggregate.regimes = [r.value for r in regimes]
         # Re-rank the merged set once more so the final ordering reflects a single
         # comparable score rather than per-topic score scales.
         for rank, chunk in enumerate(collected, start=1):

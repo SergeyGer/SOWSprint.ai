@@ -647,6 +647,15 @@ def architect_offline(scope_payload: dict[str, Any]) -> TechnicalBlueprint:
 _GOVERNING_LAW = {
     Jurisdiction.EU: "the laws of Ireland, with the courts of Dublin having exclusive jurisdiction",
     Jurisdiction.US: "the laws of the State of Delaware, excluding its conflict-of-law rules",
+    # A dual-regime contract cannot simply pick a side: whichever law governs, the
+    # mandatory provisions of the other regime still bind. Saying so explicitly is the
+    # difference between a defensible contract and a trap.
+    Jurisdiction.BOTH: (
+        "the governing law elected by the parties in Schedule A, with the courts of that "
+        "forum having exclusive jurisdiction; the mandatory provisions of both the "
+        "European Union regime (GDPR, EU AI Act) and the United States regime "
+        "(applicable federal and state law) apply notwithstanding that election"
+    ),
 }
 
 _REQUIRED_CLAUSES: dict[Jurisdiction, list[str]] = {
@@ -677,6 +686,31 @@ _REQUIRED_CLAUSES: dict[Jurisdiction, list[str]] = {
         "Confidentiality",
         "Intellectual Property and Work Product",
         "Representations and Warranties",
+        "Indemnification",
+        "Limitation of Liability",
+        "Term and Termination",
+        "Governing Law and Venue",
+    ],
+    # Union of both templates plus the clauses only a dual-regime contract needs.
+    # Listed explicitly rather than computed so the reading order stays deliberate:
+    # data-protection obligations first, then the clauses that reconcile them.
+    Jurisdiction.BOTH: [
+        "Definitions",
+        "Scope of Services",
+        "Deliverables and Milestones",
+        "Acceptance Procedure",
+        "Change Control",
+        "Fees and Payment",
+        "Data Protection and GDPR Compliance",
+        "Data Protection and Privacy",
+        "Artificial Intelligence Act Compliance",
+        "Cross-Border Data Transfers and Transfer Mechanisms",
+        "Dual-Regime Compliance and Order of Precedence",
+        "Conflicting Obligations and Stricter-Standard Rule",
+        "Confidentiality",
+        "Intellectual Property and Work Product",
+        "Representations and Warranties",
+        "Warranties and Service Levels",
         "Indemnification",
         "Limitation of Liability",
         "Term and Termination",
@@ -936,6 +970,52 @@ def _clause_body(
             "International Sale of Goods."
         )
         return body, _cite(entries, ["governing law", "jurisdiction", "venue", "delaware"]), tags
+
+    if heading == "Dual-Regime Compliance and Order of Precedence":
+        body = (
+            "The parties acknowledge that the Services are subject to both the data "
+            "protection and artificial-intelligence rules of the European Union and the "
+            "federal and state laws of the United States, and that compliance with one "
+            "regime does not discharge the obligations arising under the other. Where a "
+            "single control, record or notice satisfies both regimes it may be used for "
+            "both; where separate artefacts are required, the Supplier shall maintain "
+            "them separately. The Supplier shall nominate a single compliance owner "
+            "accountable for both regimes and shall report the compliance position "
+            "against each regime at every milestone review."
+        )
+        return body, _cite(entries, ["gdpr", "ccpa", "privacy", "compliance", "ai act"]), tags
+
+    if heading == "Cross-Border Data Transfers and Transfer Mechanisms":
+        body = (
+            "Personal Data shall not be transferred from the European Economic Area to a "
+            "third country unless a valid transfer mechanism is in place, being an "
+            "adequacy decision, the Standard Contractual Clauses, or another instrument "
+            "permitted under Chapter V of the GDPR, supported where required by a "
+            "transfer impact assessment. Where Personal Data originating in the "
+            "European Economic Area is processed in the United States, the Supplier "
+            "shall maintain its certification under the EU-U.S. Data Privacy Framework "
+            "or rely on the Standard Contractual Clauses with supplementary measures. "
+            "The Supplier shall notify the Customer before engaging any sub-processor "
+            "established outside the European Economic Area."
+        )
+        return body, _cite(entries, ["transfer", "scc", "standard contractual", "adequacy", "privacy framework"]), tags
+
+    if heading == "Conflicting Obligations and Stricter-Standard Rule":
+        body = (
+            "Where a requirement of one regime conflicts with, or is more onerous than, "
+            "the corresponding requirement of the other, the parties shall apply the "
+            "stricter standard, and the Supplier shall not be relieved of an obligation "
+            "under one regime by reason of compliance with the other. By way of "
+            "illustration: where the GDPR requires a shorter breach-notification period "
+            "than applicable United States law, the shorter period applies to all "
+            "affected data subjects; where United States law requires disclosure of a "
+            "security incident that the GDPR would restrict, the parties shall make the "
+            "disclosure only to the extent legally compelled and shall notify the other "
+            "party in advance where lawful to do so. If a conflict cannot be reconciled "
+            "by applying the stricter standard, the parties shall escalate it under the "
+            "Change Control procedure before performance of the affected obligation."
+        )
+        return body, _cite(entries, ["breach", "notification", "disclosure", "conflict", "stricter"]), tags
 
     return (
         f"{heading}: the parties shall perform their respective obligations in accordance with the "

@@ -72,7 +72,7 @@ def point_id_for(chunk_id: str) -> str:
 
 
 def build_jurisdiction_filter(
-    jurisdiction: str | None,
+    jurisdiction: str | list[str] | None,
     *,
     doc_types: list[str] | None = None,
     exclude_chunk_ids: list[str] | None = None,
@@ -95,7 +95,23 @@ def build_jurisdiction_filter(
     must: list[Any] = []
     must_not: list[Any] = []
 
-    if jurisdiction:
+    # A dual-regime engagement is expressed as a set of regimes rather than a fifth
+    # stored value: no chunk is tagged "BOTH", so the filter must match either member.
+    if isinstance(jurisdiction, (list, tuple, set)):
+        values = [str(v) for v in jurisdiction if v]
+        if len(values) == 1:
+            must.append(
+                qmodels.FieldCondition(
+                    key="jurisdiction", match=qmodels.MatchValue(value=values[0])
+                )
+            )
+        elif values:
+            must.append(
+                qmodels.FieldCondition(
+                    key="jurisdiction", match=qmodels.MatchAny(any=values)
+                )
+            )
+    elif jurisdiction:
         must.append(
             qmodels.FieldCondition(
                 key="jurisdiction",
@@ -127,7 +143,7 @@ def build_jurisdiction_filter(
 
 def matches_filter(
     payload: dict[str, Any],
-    jurisdiction: str | None,
+    jurisdiction: str | list[str] | None,
     doc_types: list[str] | None = None,
     exclude_chunk_ids: list[str] | None = None,
 ) -> bool:
@@ -136,7 +152,11 @@ def matches_filter(
     Keeping the two implementations side by side guarantees the fallback backend
     applies *identical* filtering semantics to the production vector engine.
     """
-    if jurisdiction and payload.get("jurisdiction") != jurisdiction:
+    if isinstance(jurisdiction, (list, tuple, set)):
+        allowed = {str(v) for v in jurisdiction if v}
+        if allowed and payload.get("jurisdiction") not in allowed:
+            return False
+    elif jurisdiction and payload.get("jurisdiction") != jurisdiction:
         return False
     if doc_types and payload.get("doc_type") not in doc_types:
         return False
