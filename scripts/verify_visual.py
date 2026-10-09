@@ -86,7 +86,7 @@ def log_in(page: Page, username: str, password: str) -> bool:
     except PlaywrightTimeout:
         return True  # no login form: either open, or already authenticated
     print("  → login form present, signing in", flush=True)
-    page.fill("input[type=text], input[name=username]", username)
+    page.fill("#email, input[name=email], input[type=text], input[name=username]", username)
     page.fill("input[type=password]", password)
     page.keyboard.press("Enter")
     try:

@@ -25,6 +25,7 @@ Notes
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -82,7 +83,38 @@ class Capture:
         box.press("Enter")
 
 
-def capture(url: str, out: Path, *, mobile_shot: bool = True) -> int:
+def log_in(page: Page, username: str, password: str) -> bool:
+    """Sign in when the deployment requires it.
+
+    Authentication is on by default, so a capture against a default deployment meets a
+    login form and, without this, screenshots the form for the rest of the run.
+    """
+    try:
+        page.wait_for_selector("input[type=password]", timeout=15_000)
+    except PlaywrightTimeout:
+        return True  # no form: either open, or already authenticated
+    if not username:
+        print("    ⚠️ login required but no credentials were supplied", flush=True)
+        return False
+    print("  → signing in", flush=True)
+    page.fill("#email, input[name=email], input[type=text], input[name=username]", username)
+    page.fill("input[type=password]", password)
+    page.keyboard.press("Enter")
+    try:
+        page.wait_for_selector("input[type=password]", state="detached", timeout=30_000)
+    except PlaywrightTimeout:
+        return False
+    return True
+
+
+def capture(
+    url: str,
+    out: Path,
+    *,
+    mobile_shot: bool = True,
+    username: str = "",
+    password: str = "",
+) -> int:
     out.mkdir(parents=True, exist_ok=True)
     started = time.time()
 
@@ -103,6 +135,12 @@ def capture(url: str, out: Path, *, mobile_shot: bool = True) -> int:
 
         print("  → opening the app", flush=True)
         page.goto(url, wait_until="domcontentloaded", timeout=90_000)
+
+        if not log_in(page, username, password):
+            print("  ✗ could not sign in", flush=True)
+            context.close()
+            browser.close()
+            return 1
 
         if not cap.wait_for_text("SOWSprint.ai", timeout_s=90, label="welcome"):
             print("  ✗ the app never rendered — see the locale note in the docstring")
@@ -179,6 +217,7 @@ def capture(url: str, out: Path, *, mobile_shot: bool = True) -> int:
             )
             mpage = mobile.new_page()
             mpage.goto(url, wait_until="domcontentloaded", timeout=90_000)
+            log_in(mpage, username, password)
             try:
                 mpage.wait_for_function(
                     "() => document.body.innerText.includes('SOWSprint.ai')",
@@ -212,8 +251,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--url", default="http://sowsprint-app:8000")
     parser.add_argument("--out", default="/demo/out")
     parser.add_argument("--no-mobile", action="store_true")
+    parser.add_argument("--username", default=os.environ.get("SOWSPRINT_AUTH_USER", ""))
+    parser.add_argument("--password", default=os.environ.get("SOWSPRINT_AUTH_PASSWORD", ""))
     args = parser.parse_args(argv)
-    return capture(args.url, Path(args.out), mobile_shot=not args.no_mobile)
+    return capture(
+        args.url,
+        Path(args.out),
+        mobile_shot=not args.no_mobile,
+        username=args.username,
+        password=args.password,
+    )
 
 
 if __name__ == "__main__":
