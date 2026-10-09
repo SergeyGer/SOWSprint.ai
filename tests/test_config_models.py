@@ -1035,3 +1035,63 @@ class TestAnthropicParameterCompatibility:
         assert "temperature" not in calls[1]
         # The lesson is retained for the rest of the process.
         assert rejects_temperature(model) is True
+
+
+class TestEmptyBaseUrlIsOmitted:
+    """A blank base_url must be absent, not empty.
+
+    The OpenAI SDK applies its own default only when the argument is missing. Passing
+    ``base_url=""`` stores the empty string, and every request URL is then built as
+    ``"" + "/embeddings"``, which httpx rejects with ``UnsupportedProtocol``. The
+    caller sees a bare ``APIConnectionError: Connection error`` — a network fault that
+    is not one.
+
+    This shipped: OpenAI embeddings were entirely non-functional whenever
+    SOWSPRINT_OPENAI_BASE_URL was left blank, and the symptom was repeatedly diagnosed
+    as intermittent connectivity and worked around by retrying.
+    """
+
+    def test_a_blank_setting_produces_no_base_url_argument(self) -> None:
+        from sowsprint.config import openai_client_kwargs
+
+        settings = make_settings(openai_base_url="")
+        assert openai_client_kwargs(settings) == {}
+
+    def test_whitespace_is_treated_as_unset(self) -> None:
+        from sowsprint.config import openai_client_kwargs
+
+        assert openai_client_kwargs(make_settings(openai_base_url="   ")) == {}
+
+    def test_a_configured_url_is_passed_through(self) -> None:
+        from sowsprint.config import openai_client_kwargs
+
+        settings = make_settings(openai_base_url="https://gateway.internal/v1")
+        assert openai_client_kwargs(settings) == {"base_url": "https://gateway.internal/v1"}
+
+    def test_an_explicit_url_overrides_the_setting(self) -> None:
+        from sowsprint.config import openai_client_kwargs
+
+        settings = make_settings(openai_base_url="https://ignored/v1")
+        assert openai_client_kwargs(settings, base_url="https://explicit/v1") == {
+            "base_url": "https://explicit/v1"
+        }
+
+    def test_an_explicit_blank_overrides_a_configured_setting(self) -> None:
+        """Groq and Ollama pass their own endpoint; an explicit blank means 'default'."""
+        from sowsprint.config import openai_client_kwargs
+
+        settings = make_settings(openai_base_url="https://configured/v1")
+        assert openai_client_kwargs(settings, base_url="") == {}
+
+    def test_the_openai_clients_resolve_a_real_default(self) -> None:
+        """The regression that mattered: the client must not end up with base_url ''."""
+        from sowsprint.llm.openai_client import OpenAIClient
+        from sowsprint.rag.embeddings import OpenAIEmbedder
+
+        settings = make_settings(
+            openai_api_key="sk-test",
+            openai_base_url="",
+            embedding_provider="openai",
+        )
+        assert str(OpenAIEmbedder(settings)._client.base_url).startswith("https://")
+        assert str(OpenAIClient("pytest-base-url", settings)._client.base_url).startswith("https://")

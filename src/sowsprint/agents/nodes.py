@@ -37,6 +37,7 @@ from ..models import (
     SOWDocument,
     TechnicalBlueprint,
     calibrate_severity,
+    score_from_findings,
     verify_missing_clause_findings,
 )
 from ..observability.logging import get_logger
@@ -569,6 +570,8 @@ class AgentNodes:
         # blocking decision comes from the finding category rather than from the
         # model's own severity label.
         original_blocking = len(report.blocking_findings)
+        original_score = report.quality_score
+        original_findings = len(report.findings)
         report.findings = [calibrate_severity(f) for f in report.findings]
 
         # Then cross-check any 'missing clause' claim against the document itself.
@@ -580,9 +583,31 @@ class AgentNodes:
                 draft, report.findings
             )
             if contradicted:
+                report.dismissed = contradicted
                 log.warning("critic.missing_clause_contradicted", notes=contradicted)
 
-        if len(report.blocking_findings) != original_blocking:
+        # The verdict AND the score are both recomputed once anything was dismissed.
+        # Recomputing only the verdict left the judge's score standing — a score it
+        # assigned while believing eleven mandatory clauses were absent — so the run
+        # failed on `0.00 >= 0.72` for defects that had just been proven not to exist.
+        # The UI could also report "FAILED" beside a findings list containing nothing
+        # blocking, which is incoherent on its face.
+        if len(report.findings) != original_findings:
+            report.raw_quality_score = original_score
+            report.quality_score = score_from_findings(report)
+            report.passed = not report.blocking_findings and report.quality_score >= 0.72
+            log.info(
+                "critic.verdict_recomputed",
+                node="critic",
+                findings_before=original_findings,
+                findings_after=len(report.findings),
+                blocking_before=original_blocking,
+                blocking_after=len(report.blocking_findings),
+                score_before=original_score,
+                score_after=report.quality_score,
+                passed=report.passed,
+            )
+        elif len(report.blocking_findings) != original_blocking:
             report.passed = not report.blocking_findings and report.quality_score >= 0.72
             log.info(
                 "critic.severity_calibrated",

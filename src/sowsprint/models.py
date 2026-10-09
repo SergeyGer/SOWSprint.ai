@@ -520,6 +520,14 @@ class CritiqueReport(BaseModel):
     #: contract and must not be presented as one.
     degraded: bool = False
     degradation_reason: str = ""
+    #: Claims the deterministic cross-check refuted. Kept for transparency — a judge
+    #: that invented eleven missing clauses is worth knowing about — but deliberately
+    #: OUTSIDE ``findings``, because a claim proven false is not a defect and must not
+    #: weigh on the score.
+    dismissed: list[str] = Field(default_factory=list)
+    #: The judge's own score before verification, retained so the adjustment is visible
+    #: rather than silent.
+    raw_quality_score: float | None = None
     checked_clauses: int = Field(default=0, ge=0)
     unsupported_citations: list[str] = Field(default_factory=list)
     repair_instructions: list[str] = Field(
@@ -754,8 +762,14 @@ def verify_missing_clause_findings(
 
     This is a deterministic cross-check, not a second opinion: the document either
     contains a clause about the topic or it does not. Confirmed-absent findings pass
-    through untouched; contradicted ones are downgraded to LOW so they inform the
-    reviewer without halting a delivery.
+    through untouched.
+
+    Contradicted findings are **removed** and their descriptions returned separately,
+    not downgraded. Downgrading was the earlier behaviour and it was wrong: the finding
+    still counted toward the finding total, and the judge's score — computed when it
+    believed eleven mandatory clauses were absent — was left standing. A contract was
+    failed at 0.00 on eleven defects that did not exist, and the repair loop was set to
+    chase them. A claim proven false is not a low-severity defect; it is not a defect.
     """
     if not findings:
         return findings, []
@@ -766,6 +780,7 @@ def verify_missing_clause_findings(
     headings = " ".join(clause.heading for clause in document.clauses).casefold()
 
     contradicted: list[str] = []
+    dropped: list[CriticFinding] = []
     for finding in findings:
         if finding.category is not FindingCategory.MISSING_CLAUSE:
             continue
@@ -785,9 +800,47 @@ def verify_missing_clause_findings(
             f"{finding.location}: judge reported '{terms[0]}' missing, but the document "
             f"covers it (matched: {', '.join(heading_hits or body_hits[:3])})"
         )
-        finding.severity = Severity.LOW
-        finding.description = (
-            f"[auto-downgraded: the document appears to cover this] {finding.description}"
-        )
+        dropped.append(finding)
 
-    return findings, contradicted
+    surviving = [f for f in findings if f not in dropped]
+    return surviving, contradicted
+
+
+#: Weight of a surviving blocking finding, and of an advisory one, in the recomputed
+#: score. Chosen so a single blocking defect fails the 0.72 bar on its own while
+#: advisory noise cannot fail a contract by accumulation alone.
+BLOCKING_WEIGHT = 0.30
+ADVISORY_WEIGHT = 0.05
+MAX_ADVISORY_PENALTY = 0.20
+
+
+def score_from_findings(report: CritiqueReport) -> float:
+    """Recompute the quality score from the findings that survived verification.
+
+    Needed because the judge's score is a holistic judgement that *includes* the
+    findings later refuted. When eleven claimed-missing clauses are proven present, a
+    score of 0.00 is not a harsh assessment of the contract — it is an assessment of a
+    document that does not exist. Leaving it standing failed contracts on defects that
+    were not there, and sent the repair loop after them.
+
+    The formula is deliberately simple and explainable, because a score nobody can
+    reconstruct is a score nobody can argue with:
+
+        score = 1 - 0.30 x blocking - min(0.20, 0.05 x advisory)
+
+    Grounding then *caps* the result: a contract whose claims are not traceable to
+    retrieved evidence cannot be rated highly however few findings it attracted. That
+    cap is what keeps a clean findings list from hiding weak substantiation.
+    """
+    blocking = sum(1 for finding in report.findings if finding.is_blocking)
+    advisory = len(report.findings) - blocking
+
+    score = 1.0 - BLOCKING_WEIGHT * blocking - min(
+        MAX_ADVISORY_PENALTY, ADVISORY_WEIGHT * advisory
+    )
+    score = max(0.0, min(1.0, score))
+
+    grounding = report.grounding_ratio if report.grounding_ratio is not None else 1.0
+    # Floor the cap at 0.40: poor grounding is a serious defect, but it should not by
+    # itself reduce an otherwise sound contract to zero and force a rewrite.
+    return round(min(score, max(0.40, grounding)), 4)

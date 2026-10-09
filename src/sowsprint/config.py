@@ -17,7 +17,7 @@ from __future__ import annotations
 import functools
 from enum import Enum
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -409,3 +409,21 @@ def get_settings() -> Settings:
 def reset_settings_cache() -> None:
     """Clear the settings cache (used by tests that mutate the environment)."""
     get_settings.cache_clear()
+
+
+def openai_client_kwargs(settings: Settings, *, base_url: str | None = None) -> dict[str, Any]:
+    """Keyword arguments for an OpenAI-compatible client, with ``base_url`` omitted
+    when it is not configured.
+
+    ``base_url=""`` is not treated as "use the default". The SDK stores the empty
+    string and builds every request URL as ``"" + "/embeddings"``, which httpx rejects
+    with ``UnsupportedProtocol: Request URL is missing an 'http://' or 'https://'
+    protocol`` — surfaced to the caller as a bare ``APIConnectionError: Connection
+    error``. That reads as a network fault, so it was diagnosed as intermittent
+    connectivity and worked around by retrying, while OpenAI embeddings were in fact
+    completely non-functional whenever ``SOWSPRINT_OPENAI_BASE_URL`` was left blank.
+    The SDK applies its own default only when the argument is absent.
+    """
+    resolved = (base_url if base_url is not None else settings.openai_base_url) or ""
+    resolved = resolved.strip()
+    return {"base_url": resolved} if resolved else {}

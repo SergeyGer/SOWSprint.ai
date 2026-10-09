@@ -19,7 +19,7 @@ from collections.abc import Sequence
 from itertools import pairwise
 
 from ..config import EmbeddingProvider as EmbeddingProviderEnum
-from ..config import Settings, get_settings
+from ..config import Settings, get_settings, openai_client_kwargs
 from ..observability.logging import get_logger
 from ..telemetry import tracker
 from ..telemetry.pricing import EMBEDDING_PRICE_BOOK, lookup
@@ -112,9 +112,9 @@ class OpenAIEmbedder(Embedder):
         self.name = self.settings.embedding_model
         self._client = OpenAI(
             api_key=self.settings.openai_api_key,
-            base_url=self.settings.openai_base_url,
             timeout=self.settings.request_timeout_s,
             max_retries=2,
+            **openai_client_kwargs(self.settings),
         )
 
     def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:

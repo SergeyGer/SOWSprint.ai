@@ -13,7 +13,7 @@ from typing import Any, ClassVar
 import httpx
 from openai import OpenAI
 
-from ..config import Settings
+from ..config import Settings, openai_client_kwargs
 from .base import BaseLLMClient, Message
 
 
@@ -59,7 +59,7 @@ class OpenAIClient(BaseLLMClient):
         self._default_model = default_model
         self._client = OpenAI(
             api_key=api_key or self.settings.openai_api_key,
-            base_url=base_url or self.settings.openai_base_url,
+            **openai_client_kwargs(self.settings, base_url=base_url),
             # Short connect timeout, generous read timeout. A single shared budget
             # would make an unreachable endpoint hang for minutes before the
             # fallback provider engages.

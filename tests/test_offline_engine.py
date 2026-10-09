@@ -567,7 +567,13 @@ class TestJudgeSanityCheck:
             ],
         )
 
-    def test_contradicted_finding_is_downgraded(self) -> None:
+    def test_contradicted_finding_is_removed_not_downgraded(self) -> None:
+        """A claim proven false is not a low-severity defect; it is not a defect.
+
+        Downgrading was the earlier behaviour and it failed contracts at 0.00: the
+        finding stayed in the list, counted toward the total, and the judge's score —
+        computed while it believed the clause was absent — was left standing.
+        """
         from sowsprint.models import verify_missing_clause_findings
 
         finding = CriticFinding(
@@ -582,10 +588,75 @@ class TestJudgeSanityCheck:
         )
         findings, notes = verify_missing_clause_findings(self._document(), [finding])
 
-        assert findings[0].severity is Severity.LOW
-        assert findings[0].is_blocking is False
+        assert findings == [], "a refuted claim must not survive into the findings"
         assert notes and "governing" in notes[0]
-        assert "auto-downgraded" in findings[0].description
+        assert any("covers it" in note for note in notes)
+
+    def test_a_genuinely_absent_clause_still_blocks(self) -> None:
+        """The guard must not become a way for real gaps to pass."""
+        from sowsprint.models import verify_missing_clause_findings
+
+        finding = CriticFinding(
+            category=FindingCategory.MISSING_CLAUSE,
+            severity=Severity.CRITICAL,
+            location="global",
+            description="The contract lacks a source code escrow arrangement.",
+            remediation="Add an escrow clause.",
+        )
+        findings, notes = verify_missing_clause_findings(self._document(), [finding])
+
+        assert len(findings) == 1
+        assert findings[0].is_blocking is True
+        assert notes == []
+
+    def test_the_score_is_recomputed_when_findings_are_dismissed(self) -> None:
+        """The judge's 0.00 was assigned for defects that turned out not to exist."""
+        from sowsprint.models import CritiqueReport, score_from_findings
+
+        report = CritiqueReport(
+            passed=False,
+            quality_score=0.0,
+            grounding_ratio=1.0,
+            findings=[
+                CriticFinding(
+                    category=FindingCategory.AMBIGUITY,
+                    severity=Severity.LOW,
+                    location="3.1",
+                    description="One advisory note.",
+                    remediation="Tighten the wording.",
+                )
+            ],
+        )
+        recomputed = score_from_findings(report)
+
+        assert recomputed > 0.72, "advisory noise alone must not fail a contract"
+        assert recomputed < 1.0
+
+    def test_grounding_caps_the_recomputed_score(self) -> None:
+        """A clean findings list must not hide weak substantiation."""
+        from sowsprint.models import CritiqueReport, score_from_findings
+
+        report = CritiqueReport(passed=True, quality_score=0.9, grounding_ratio=0.20)
+        assert score_from_findings(report) < 0.72
+
+    def test_a_blocking_finding_alone_fails_the_bar(self) -> None:
+        from sowsprint.models import CritiqueReport, score_from_findings
+
+        report = CritiqueReport(
+            passed=False,
+            quality_score=0.5,
+            grounding_ratio=1.0,
+            findings=[
+                CriticFinding(
+                    category=FindingCategory.COMMERCIAL_RISK,
+                    severity=Severity.HIGH,
+                    location="7.2",
+                    description="Liability is unbounded.",
+                    remediation="Add a cap.",
+                )
+            ],
+        )
+        assert score_from_findings(report) < 0.72
 
     def test_genuinely_absent_clause_still_blocks(self) -> None:
         from sowsprint.models import verify_missing_clause_findings

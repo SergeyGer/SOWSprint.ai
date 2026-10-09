@@ -31,6 +31,7 @@ import io
 import wave
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from ..config import Settings, get_settings
 from ..observability.logging import get_logger
@@ -183,7 +184,13 @@ def _transcribe_openai_compatible(
     """Call an OpenAI-compatible ``/audio/transcriptions`` endpoint."""
     from openai import OpenAI
 
-    client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout, max_retries=1)
+    # Omit base_url entirely when unset: an empty string produces a client whose
+    # requests fail with "missing protocol" — reported as APIConnectionError, which
+    # reads as a network fault and is not one.
+    client_kwargs: dict[str, Any] = {}
+    if base_url and base_url.strip():
+        client_kwargs["base_url"] = base_url.strip()
+    client = OpenAI(api_key=api_key, timeout=timeout, max_retries=1, **client_kwargs)
     with path.open("rb") as handle:
         response = client.audio.transcriptions.create(
             model=model,

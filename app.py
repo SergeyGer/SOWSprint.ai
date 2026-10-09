@@ -328,22 +328,43 @@ async def _update_dashboard(session: ScopingSession | None) -> None:
 
 
 #: Agents in the order they typically run, with what each hands to the next.
-AGENT_FLOW: list[tuple[str, str, str]] = [
-    ("triage", "Triage", "reads the brief, extracts scope, flags compliance triggers"),
-    ("clarify", "Clarify", "asks for the variables it could not infer"),
-    ("architect", "Architect", "turns scope into milestones, epics, stories"),
-    ("legal", "Legal", "drafts the contract from scope and retrieved evidence"),
-    ("critic", "Critic", "audits the draft against the compliance corpus"),
-    ("approval", "Approval", "waits for a human before anything is provisioned"),
-    ("tools", "Tools", "creates the workspace in Jira and Notion"),
-    ("finalize", "Finalize", "renders the deliverables"),
+#: (node, icon, name, what it does). The icon carries the agent's role at a glance —
+#: a magnifier for reading a brief, scales for drafting, a shield for auditing.
+AGENT_FLOW: list[tuple[str, str, str, str]] = [
+    ("triage", "🔍", "Triage", "reads the brief, extracts scope, flags compliance triggers"),
+    ("clarify", "❓", "Clarify", "asks for the variables it could not infer"),
+    ("architect", "📐", "Architect", "turns scope into milestones, epics, stories"),
+    ("legal", "⚖️", "Legal", "drafts the contract from scope and retrieved evidence"),
+    ("critic", "🛡️", "Critic", "audits the draft against the compliance corpus"),
+    ("approval", "✋", "Approval", "waits for a human before anything is provisioned"),
+    ("tools", "🔧", "Tools", "creates the workspace in Jira and Notion"),
+    ("finalize", "📦", "Finalize", "renders the deliverables"),
 ]
+
+#: Stages that may be skipped on a given run, so a progress denominator stays honest.
+OPTIONAL_STAGES = {"clarify", "approval"}
 
 
 def _flow_diagram(visited: dict[str, str]) -> str:
-    """Render the agent pipeline, marking what ran and what each stage produced."""
-    rows = ["| | Agent | What it does | Outcome |", "| :-- | :-- | :-- | :-- |"]
-    for node, label, purpose in AGENT_FLOW:
+    """Render the agent pipeline, marking what has run and what each stage produced.
+
+    Called again on every completed stage: the diagram is the answer to "what is
+    happening right now", and a table frozen at "not reached" answers nothing.
+    """
+    done = [node for node, _, _, _ in AGENT_FLOW if visited.get(node)]
+    required = [node for node, _, _, _ in AGENT_FLOW if node not in OPTIONAL_STAGES]
+    finished = sum(1 for node in required if visited.get(node))
+
+    filled = round(12 * finished / max(1, len(required)))
+    bar = "█" * filled + "░" * (12 - filled)
+
+    rows = [
+        f"**Agent pipeline** — `{bar}` {finished}/{len(required)} stages",
+        "",
+        "| | Agent | What it does | Outcome |",
+        "| :--: | :-- | :-- | :-- |",
+    ]
+    for node, icon, label, purpose in AGENT_FLOW:
         outcome = visited.get(node)
         if outcome is None:
             mark, detail = "·", "*not reached*"
@@ -351,7 +372,9 @@ def _flow_diagram(visited: dict[str, str]) -> str:
             mark, detail = "⚠️", outcome
         else:
             mark, detail = "✅", outcome
-        rows.append(f"| {mark} | **{label}** | {purpose} | {detail} |")
+        rows.append(f"| {icon} | **{label}** | {purpose} | {mark} {detail} |")
+    if done:
+        rows += ["", f"<sub>{len(done)} stage(s) reported · updates as the run proceeds</sub>"]
     return "\n".join(rows)
 
 
@@ -455,7 +478,16 @@ async def _drive(
                 marker = "⚠️ " if status == "failed" else ""
                 visited[stage] = f"{marker}{title}" + (f" — {detail}" if detail else "")
                 cl.user_session.set("flow_visited", visited)
-                label = {node: name for node, name, _ in AGENT_FLOW}.get(stage, stage)
+
+                # Redraw the pipeline in place. It was rendered once at the start and
+                # never updated, so every row read "not reached" for the whole run —
+                # the table answered the one question it existed to answer with "no".
+                diagram = cl.user_session.get("flow_msg")
+                if diagram is not None:
+                    diagram.content = _flow_diagram(visited)
+                    with contextlib.suppress(Exception):
+                        await diagram.update()
+                label = {node: name for node, _, name, _ in AGENT_FLOW}.get(stage, stage)
                 await _set_activity(
                     f"**{label}** — {title or 'working'}"
                     + (f" · *{detail}*" if detail else ""),
@@ -1130,8 +1162,9 @@ async def _start_run(requirement: str) -> None:
     cl.user_session.set("dashboard_msg", None)
     cl.user_session.set("activity_msg", None)
     cl.user_session.set("flow_visited", {})
+    cl.user_session.set("flow_msg", None)
 
-    await cl.Message(
+    opening = cl.Message(
         content="\n".join(
             [
                 f"## 🚀 New engagement — {_chip(jurisdiction)}",
@@ -1147,7 +1180,11 @@ async def _start_run(requirement: str) -> None:
                 _flow_diagram({}),
             ]
         )
-    ).send()
+    )
+    await opening.send()
+    # Held so the pipeline table can be redrawn in place; without this it renders once
+    # with every row "not reached" and never changes.
+    cl.user_session.set("flow_msg", opening)
 
     try:
         result = await _drive(
