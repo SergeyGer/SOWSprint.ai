@@ -515,6 +515,11 @@ class CritiqueReport(BaseModel):
     )
     summary: str = ""
     findings: list[CriticFinding] = Field(default_factory=list)
+    #: True when the configured judge was unreachable and the verdict came from the
+    #: deterministic offline checker instead. Such a verdict is not a judgement of the
+    #: contract and must not be presented as one.
+    degraded: bool = False
+    degradation_reason: str = ""
     checked_clauses: int = Field(default=0, ge=0)
     unsupported_citations: list[str] = Field(default_factory=list)
     repair_instructions: list[str] = Field(

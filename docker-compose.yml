@@ -77,6 +77,11 @@ services:
       # bm25_stats.json lives inside this directory, so one volume covers both —
       # mounting a second volume at the same path would shadow the first.
       - artifact_data:/app/data/artifacts
+      # Extra compliance corpora (CUAD, in-house clause banks) are dropped into
+      # data/corpus/*.json on the host and read here. Mounted rather than copied at
+      # build time so an operator can extend the knowledge base without rebuilding,
+      # which is what the drop-in directory is for.
+      - ./data/corpus:/app/data/corpus:ro
     healthcheck:
       test: ["CMD", "python", "/app/scripts/healthcheck.py", "--url", "http://127.0.0.1:8000/"]
       interval: 30s

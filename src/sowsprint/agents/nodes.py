@@ -540,6 +540,30 @@ class AgentNodes:
 
         report.attempt = attempt
 
+        # If the pipeline is running on a cloud provider but the audit fell back to the
+        # deterministic engine, the verdict is not a judgement of this contract. The
+        # offline critic matches headings against a fixed template: handed a document
+        # drafted by a language model, it reports every clause as missing and scores the
+        # contract 0.00. That is a failure of the audit, not of the contract, and
+        # presenting it as a verdict sends the repair loop chasing defects that do not
+        # exist. Record it so the interface can say so.
+        configured = str(getattr(self.settings, "resolved_critic_provider", "")).split(".")[-1].lower()
+        used = str(getattr(self.critic_client, "provider", "")).lower()
+        if used == "offline" and configured not in ("mock", "offline", ""):
+            report.degraded = True
+            report.degradation_reason = (
+                f"the judge ({configured}) was unreachable, so this verdict comes from "
+                "the deterministic offline checker, which matches clause headings "
+                "against a fixed template. Treat the score and the findings as "
+                "unreliable and re-run the audit."
+            )
+            log.warning(
+                "critic.degraded_audit",
+                configured=configured,
+                findings=len(report.findings),
+                score=report.quality_score,
+            )
+
         # Calibrate severity before the verdict is trusted. A judge model is reliable
         # about *what* is wrong and inconsistent about *how much it matters*, so the
         # blocking decision comes from the finding category rather than from the

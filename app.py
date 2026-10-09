@@ -241,6 +241,63 @@ def _capability_block() -> str:
     )
 
 
+def _corpus_block() -> str:
+    """Describe the knowledge base the next engagement will draw on.
+
+    Shown at the start of every run, because the retrieved evidence is only as good as
+    the corpus behind it and nothing else in the transcript lets a reader judge that.
+    """
+    from sowsprint.rag.ingest import corpus_composition
+
+    try:
+        stats = corpus_composition()
+    except Exception as exc:
+        log.warning("corpus.composition_unavailable", error=str(exc))
+        return ""
+
+    jurisdictions = stats.get("jurisdictions") or {}
+    total = stats.get("entries") or 0
+    if not total:
+        return ""
+
+    def share(count: int) -> str:
+        return f"{100 * count / total:.0f}%"
+
+    split = " · ".join(f"**{k}** {v} ({share(v)})" for k, v in jurisdictions.items())
+    sources = " · ".join(
+        f"{name} {count}" for name, count in (stats.get("sources") or {}).items()
+    )
+    types = " · ".join(
+        f"{name} {count}" for name, count in list((stats.get("doc_types") or {}).items())[:5]
+    )
+    tags = ", ".join(f"`{t}`" for t in list(stats.get("top_tags") or {})[:8])
+
+    lines = [
+        "**Knowledge base** — the evidence every clause is grounded in",
+        "",
+        "| | |",
+        "| :-- | :-- |",
+        f"| Passages indexed | **{stats['approx_tokens']:,} tokens** "
+        f"({stats['chars']:,} chars) |",
+        f"| Entries | {total} "
+        f"({stats.get('bundled_entries', total)} bundled · "
+        f"{stats.get('drop_in_entries', 0)} from `data/corpus/`) |",
+        f"| Jurisdiction | {split} |",
+        f"| Sources | {sources} |",
+        f"| Document types | {types} |",
+    ]
+    if tags:
+        lines.append(f"| Common topics | {tags} |")
+    if jurisdictions.get("US", 0) > 3 * max(1, jurisdictions.get("EU", 1)):
+        lines += [
+            "",
+            "> The corpus is heavily skewed to US precedent: CUAD supplies US commercial "
+            "clauses, while EU material is largely regulatory text. EU clauses are "
+            "drafted from obligations rather than from precedent wording.",
+        ]
+    return "\n".join(lines)
+
+
 async def _update_dashboard(session: ScopingSession | None) -> None:
     """Refresh the sticky cost dashboard in the transcript.
 
@@ -268,6 +325,52 @@ async def _update_dashboard(session: ScopingSession | None) -> None:
         # of appending a new one on every step.
         dashboard.content = html
         await dashboard.update()
+
+
+#: Agents in the order they typically run, with what each hands to the next.
+AGENT_FLOW: list[tuple[str, str, str]] = [
+    ("triage", "Triage", "reads the brief, extracts scope, flags compliance triggers"),
+    ("clarify", "Clarify", "asks for the variables it could not infer"),
+    ("architect", "Architect", "turns scope into milestones, epics, stories"),
+    ("legal", "Legal", "drafts the contract from scope and retrieved evidence"),
+    ("critic", "Critic", "audits the draft against the compliance corpus"),
+    ("approval", "Approval", "waits for a human before anything is provisioned"),
+    ("tools", "Tools", "creates the workspace in Jira and Notion"),
+    ("finalize", "Finalize", "renders the deliverables"),
+]
+
+
+def _flow_diagram(visited: dict[str, str]) -> str:
+    """Render the agent pipeline, marking what ran and what each stage produced."""
+    rows = ["| | Agent | What it does | Outcome |", "| :-- | :-- | :-- | :-- |"]
+    for node, label, purpose in AGENT_FLOW:
+        outcome = visited.get(node)
+        if outcome is None:
+            mark, detail = "·", "*not reached*"
+        elif outcome.startswith("⚠"):
+            mark, detail = "⚠️", outcome
+        else:
+            mark, detail = "✅", outcome
+        rows.append(f"| {mark} | **{label}** | {purpose} | {detail} |")
+    return "\n".join(rows)
+
+
+async def _set_activity(text: str, *, done: bool = False) -> None:
+    """Show, and keep updating, what the pipeline is doing right now.
+
+    A run takes one to three minutes. Without a live indicator the interface is
+    indistinguishable from a hung one, and the temptation is to send the brief again —
+    which starts a second engagement and doubles the cost.
+    """
+    message = cl.user_session.get("activity_msg")
+    content = f"{'✅' if done else '⏳'} {text}"
+    if message is None:
+        message = cl.Message(content=content, author="SOWSprint")
+        cl.user_session.set("activity_msg", message)
+        await message.send()
+    else:
+        message.content = content
+        await message.update()
 
 
 async def _render_step(event: dict[str, Any]) -> None:
@@ -340,7 +443,26 @@ async def _drive(
                 ).send()
                 break
             await _render_step(item)
-            if str(item.get("stage")) in ("legal", "critic", "tools"):
+
+            # Keep a running account of what has run, for the flow diagram and the
+            # live activity line.
+            stage = str(item.get("stage") or "")
+            title = str(item.get("title") or "")
+            detail = str(item.get("detail") or "")
+            status = str(item.get("status") or "completed")
+            if stage:
+                visited = cl.user_session.get("flow_visited") or {}
+                marker = "⚠️ " if status == "failed" else ""
+                visited[stage] = f"{marker}{title}" + (f" — {detail}" if detail else "")
+                cl.user_session.set("flow_visited", visited)
+                label = {node: name for node, name, _ in AGENT_FLOW}.get(stage, stage)
+                await _set_activity(
+                    f"**{label}** — {title or 'working'}"
+                    + (f" · *{detail}*" if detail else ""),
+                    done=stage in ("tools", "finalize"),
+                )
+
+            if stage in ("legal", "critic", "tools"):
                 await _update_dashboard(session)
     finally:
         with contextlib.suppress(Exception):
@@ -479,9 +601,22 @@ async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
             "",
         ]
 
+    if outcome.critique and getattr(outcome.critique, "degraded", False):
+        # Say it before the numbers, not after: a reader who sees "Score 0.00" first
+        # concludes the contract is bad, when in fact the audit never ran.
+        lines += [
+            "> ⚠️ **This audit did not run properly.** "
+            + (outcome.critique.degradation_reason or ""),
+            "",
+            "> Treat the score and every finding below as unreliable, and re-run the "
+            "engagement. The contract itself was drafted normally.",
+            "",
+        ]
+
     if outcome.critique:
         lines += [
-            "**Quality audit**",
+            "**Quality audit**"
+            + (" *(degraded — see the warning above)*" if getattr(outcome.critique, "degraded", False) else ""),
             "",
             f"- Verdict: {'PASSED ✅' if outcome.critique.passed else 'FAILED ❌'}",
             f"- Score: {outcome.critique.quality_score:.2f}",
@@ -512,11 +647,53 @@ async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
         ]
 
     if outcome.integrations:
-        lines.append("**Integrations**")
-        lines.append("")
+        # Say plainly where the data went. The previous wording — "38 call(s) succeeded
+        # against jira+notion (dry-run)" — reads as success, and a reader reasonably
+        # concluded the backlog had been created when nothing had been sent anywhere.
+        lines += ["**Where the data went**", "", "| Destination | Result |", "| :-- | :-- |"]
+        any_dry = False
         for integration in outcome.integrations:
-            lines.append(f"- {integration.get('summary')}")
+            target = str(integration.get("target") or "integration")
+            dry = bool(integration.get("dry_run"))
+            summary = str(integration.get("summary") or "")
+            created = integration.get("created") or []
+            failed = integration.get("failed") or []
+            if dry:
+                any_dry = True
+                lines.append(
+                    f"| {target} | ⚠️ **DRY RUN — nothing was sent.** "
+                    f"{len(created)} call(s) validated, {len(failed)} failed validation |"
+                )
+            elif failed:
+                lines.append(f"| {target} | ❌ {len(created)} created, **{len(failed)} failed** |")
+            else:
+                lines.append(f"| {target} | ✅ **{len(created)} item(s) created** |")
+            if summary:
+                lines.append(f"| | <sub>{summary}</sub> |")
         lines.append("")
+
+        if any_dry:
+            lines += [
+                "> **Nothing reached Jira or Notion.** Dry-run is on, so every call was "
+                "validated and thrown away. To provision the workspace for real, set "
+                "`SOWSPRINT_DRY_RUN_INTEGRATIONS=false` and run the engagement again.",
+                "",
+            ]
+
+        remote = [
+            item
+            for integration in outcome.integrations
+            for item in (integration.get("created") or [])
+            if str(item.get("url", "")).startswith("http")
+        ]
+        if remote and not any_dry:
+            lines += ["**Created in the cloud**", ""]
+            for item in remote[:12]:
+                label = item.get("key") or item.get("id") or item.get("tool")
+                lines.append(f"- [{label}]({item['url']})")
+            if len(remote) > 12:
+                lines.append(f"- … and {len(remote) - 12} more")
+            lines.append("")
 
     if outcome.artifacts:
         lines.append("**Deliverables** — attached below.")
@@ -543,7 +720,26 @@ async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
         except Exception as exc:
             log.warning("ui.artifact_send_failed", path=str(path), error=str(exc))
 
-    await _update_dashboard(_session())
+    # The sticky dashboard is edited in place near the top of the transcript. That is
+    # right while work is in progress — it stays visible — but it means the reader has
+    # to scroll back up to learn what the engagement cost. A final card at the end
+    # states the totals where the conversation actually finishes.
+    session = _session()
+    if session is not None:
+        from sowsprint.telemetry.report import render_dashboard_html
+
+        report = session.cost_report()
+        await cl.Message(
+            content="\n".join(
+                [
+                    "### Session totals",
+                    "",
+                    render_dashboard_html(report, simulated=_settings().offline_mode),
+                ]
+            )
+        ).send()
+
+    await _update_dashboard(session)
 
 
 def _mime_for(path: Path) -> str:
@@ -932,6 +1128,8 @@ async def _start_run(requirement: str) -> None:
     session = ScopingSession(session_id, settings=settings, pipeline=pipeline)
     cl.user_session.set("scoping_session", session)
     cl.user_session.set("dashboard_msg", None)
+    cl.user_session.set("activity_msg", None)
+    cl.user_session.set("flow_visited", {})
 
     await cl.Message(
         content="\n".join(
@@ -941,6 +1139,12 @@ async def _start_run(requirement: str) -> None:
                 f"*{len(requirement):,} characters received. Starting the agent graph…*",
                 "",
                 f"`run_id: {session.run_id}`",
+                "",
+                _corpus_block(),
+                "",
+                "**Agent pipeline** — this is what will run:",
+                "",
+                _flow_diagram({}),
             ]
         )
     ).send()

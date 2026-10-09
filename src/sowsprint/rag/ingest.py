@@ -295,3 +295,54 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())
+
+
+def corpus_composition(directory: Path | None = None) -> dict[str, Any]:
+    """Describe what is actually in the knowledge base, for display at run start.
+
+    A retrieval result is only as trustworthy as the corpus behind it, and an operator
+    reading a contract has no way to judge that from the transcript. Reporting the
+    composition — how many passages, split how, from where — makes the coverage
+    (and the gaps) visible at the moment they matter rather than in a README.
+
+    Counts pass ages, not entries: chunking is what the retriever sees.
+    """
+    from collections import Counter
+
+    entries = list(load_corpus()) + load_corpus_from_directory(directory)
+
+    jurisdictions: Counter[str] = Counter()
+    doc_types: Counter[str] = Counter()
+    sources: Counter[str] = Counter()
+    risk: Counter[str] = Counter()
+    tags: Counter[str] = Counter()
+    chars = 0
+
+    for entry in entries:
+        text = str(entry.get("text") or "")
+        chars += len(text)
+        jurisdictions[str(entry.get("jurisdiction", "EU")).upper()] += 1
+        doc_types[str(entry.get("doc_type", "contract_clause"))] += 1
+        risk[str(entry.get("risk_level", "medium"))] += 1
+        source = str(entry.get("source") or "")
+        # The source names the origin ("CUAD v1 — Governing Law (ACME)"). Grouping on
+        # the part before the dash answers "where did this come from?" rather than
+        # "which document was it?", which is the more useful question at this size.
+        family = source.split("—")[0].strip() if "—" in source else (source[:32] or "unspecified")
+        sources[family] += 1
+        for tag in entry.get("tags") or []:
+            tags[str(tag).casefold()] += 1
+
+    bundled = len(list(load_corpus()))
+    return {
+        "entries": len(entries),
+        "bundled_entries": bundled,
+        "drop_in_entries": len(entries) - bundled,
+        "chars": chars,
+        "approx_tokens": chars // 4,
+        "jurisdictions": dict(jurisdictions.most_common()),
+        "doc_types": dict(doc_types.most_common()),
+        "risk_levels": dict(risk.most_common()),
+        "sources": dict(sources.most_common(6)),
+        "top_tags": dict(tags.most_common(10)),
+    }
