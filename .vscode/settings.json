@@ -36,10 +36,16 @@
     "**/*.lock": true
   },
 
-  // .env holds live API keys. Keep it out of search results and out of the editor's
-  // default open set, and let the Explorer dim it.
-  "files.readonlyInclude": { ".env": true },
+  // .env is deliberately NOT marked read-only.
+  //
+  // It was, briefly, to protect the credentials inside — and that was a mistake: it
+  // blocks the owner from editing their own keys, which is a normal thing to need to
+  // do. The danger was never hand-editing one line; it was rewriting the file in bulk,
+  // which is how ten credential fields were once emptied by a pattern match. Use
+  // `python scripts/setenv.py KEY VALUE` (or `make set-env KEY=... VALUE=...`) for
+  // that, and edit by hand freely.
   "search.useIgnoreFiles": true,
+  "search.exclude": { "**/.env": true, "**/.env.*": true },
   "editor.rulers": [100],
   "yaml.schemas": {
     "https://json.schemastore.org/github-workflow.json": ".github/workflows/*.yml"
