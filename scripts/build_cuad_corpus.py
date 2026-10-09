@@ -161,7 +161,7 @@ def build(source: Path, per_category: int, min_chars: int) -> tuple[list[dict], 
                     {
                         "text": text,
                         "filename": filename,
-                        "states": [s for s in dict.fromkeys(states)][:2],
+                        "states": list(dict.fromkeys(states))[:2],
                     }
                 )
                 stats["collected"] += 1
