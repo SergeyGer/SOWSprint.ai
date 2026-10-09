@@ -186,7 +186,7 @@ def _settings() -> Settings:
             cached = get_settings()
             cl.user_session.set("settings", cached)
         return cached
-    except Exception:  # noqa: BLE001 - no session context (startup, HTTP routes)
+    except Exception:
         return get_settings()
 
 
