@@ -73,7 +73,14 @@ data/*.db
 # Editors and OS
 # ---------------------------------------------------------------------------
 .idea/
-.vscode/
+# Editor configuration is shared deliberately: launch configurations, tasks and
+# recommended extensions make the project work out of the box for anyone who clones it.
+# Personal overrides stay ignored.
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+!.vscode/settings.json
 *.swp
 *.swo
 .DS_Store

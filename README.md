@@ -57,6 +57,12 @@ Triage ──(INCOMPLETE)──► Clarify ⟲  (3 questions, human-in-the-loop)
 
 ## Quick start
 
+> **Working in an editor?** [**docs/vscode.md**](docs/vscode.md) is a step-by-step
+> guide to running the project in VS Code: debug configurations, tasks, and how to test
+> each cloud service. The short version follows.
+
+
+
 ### Zero credentials required
 
 The default configuration runs the **entire pipeline on deterministic local engines** —

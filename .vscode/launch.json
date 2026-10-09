@@ -1,0 +1,158 @@
+{
+  // ---------------------------------------------------------------------------
+  // SOWSprint.ai — debug configurations (F5)
+  // ---------------------------------------------------------------------------
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // The main entry point. Opens the Chainlit UI at http://127.0.0.1:8000 with the
+      // debugger attached; breakpoints work inside the graph nodes, the retrieval
+      // pipeline and the connectors.
+      "name": "Run the app (Chainlit, debug)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "chainlit",
+      "args": ["run", "app.py", "--host", "127.0.0.1", "--port", "8000"],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" },
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "justMyCode": false,
+      "console": "integratedTerminal"
+    },
+    {
+      // Auto-reload on save. Slower to start and it restarts the process on every
+      // keystroke-save, so it is a separate entry rather than the default.
+      "name": "Run the app (auto-reload)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "chainlit",
+      "args": ["run", "app.py", "--host", "127.0.0.1", "--port", "8000", "-w"],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" },
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "justMyCode": false,
+      "console": "integratedTerminal"
+    },
+    {
+      // The fastest way to answer "do my credentials work?". One minimal real call
+      // per cloud service; a full pass costs well under a cent.
+      "name": "Probe all cloud services",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/probe_providers.py",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" },
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "console": "integratedTerminal"
+    },
+    {
+      // Jira and Notion only, with read-only calls.
+      "name": "Verify Jira + Notion",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/verify_integrations.py",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" },
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "console": "integratedTerminal"
+    },
+    {
+      // A complete engagement with no credentials and no network: triage, drafting,
+      // audit, tool planning, approval, provisioning, rendering. The offline engine
+      // makes this deterministic, which is what makes it a useful debug target.
+      "name": "End-to-end demo (offline engine)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/demo_e2e.py",
+      "args": ["--auto-deploy"],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src",
+        "SOWSPRINT_LLM_PROVIDER": "mock",
+        "SOWSPRINT_VECTOR_BACKEND": "memory"
+      },
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "console": "integratedTerminal"
+    },
+    {
+      // The same engagement against the real models, to see actual spend and audit
+      // quality. Costs roughly $0.05-0.12 for an EU engagement.
+      "name": "End-to-end demo (live models)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/demo_e2e.py",
+      "args": ["--auto-deploy"],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" },
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "console": "integratedTerminal",
+      "presentation": { "group": "2. Live", "order": 2 }
+    },
+    {
+      "name": "Pytest: all tests",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["tests", "-o", "addopts=", "-q"],
+      "cwd": "${workspaceFolder}",
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" },
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "justMyCode": false,
+      "console": "integratedTerminal"
+    },
+    {
+      // Debugging a single test: open the file, set a breakpoint, pick this.
+      "name": "Pytest: current file",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["${file}", "-o", "addopts=", "-q", "-x"],
+      "cwd": "${workspaceFolder}",
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" },
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "justMyCode": false,
+      "console": "integratedTerminal"
+    },
+    {
+      // Requires the app to be running. Drives the real socket.io protocol.
+      "name": "Verify UI (socket, needs a running app)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/verify_ui.py",
+      "args": ["--url", "http://127.0.0.1:8000"],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" },
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Health check (deep)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/healthcheck.py",
+      "args": ["--deep"],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" },
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "console": "integratedTerminal"
+    },
+    {
+      // Attach to the process inside the Docker container, so breakpoints hit the
+      // code that is actually serving your phone.
+      "name": "Attach to Docker container",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": { "host": "127.0.0.1", "port": 5678 },
+      "pathMappings": [{ "localRoot": "${workspaceFolder}", "remoteRoot": "/app" }],
+      "justMyCode": false
+    }
+  ]
+}

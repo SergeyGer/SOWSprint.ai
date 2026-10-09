@@ -1,0 +1,123 @@
+{
+  // ---------------------------------------------------------------------------
+  // SOWSprint.ai — tasks (Ctrl/Cmd+Shift+P → "Run Task", or Ctrl/Cmd+Shift+B)
+  // ---------------------------------------------------------------------------
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Setup: create venv and install",
+      "type": "shell",
+      "command": "python3 -m venv .venv && .venv/bin/python -m pip install --upgrade pip && .venv/bin/python -m pip install -r requirements-dev.txt && .venv/bin/python -m pip install -e . --no-deps",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Docker: start Qdrant only",
+      // The app can run from VS Code while Qdrant serves the vectors. This is the
+      // usual development shape: debugger on the host, vector store in a container.
+      "type": "shell",
+      "command": "docker compose up -d sowsprint-qdrant",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" }
+    },
+    {
+      "label": "Docker: start everything",
+      "type": "shell",
+      "command": "docker compose up -d --build",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" }
+    },
+    {
+      "label": "Docker: stop",
+      "type": "shell",
+      "command": "docker compose down",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Corpus: ingest into Qdrant",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python -m sowsprint.rag.ingest",
+      "options": { "cwd": "${workspaceFolder}", "env": { "PYTHONPATH": "${workspaceFolder}/src" } },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" }
+    },
+    {
+      "label": "Corpus: reindex from scratch",
+      // Required after changing the embedding provider or dimension: an index built
+      // with one embedding model is meaningless with another.
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python -m sowsprint.rag.ingest --recreate",
+      "options": { "cwd": "${workspaceFolder}", "env": { "PYTHONPATH": "${workspaceFolder}/src" } },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" }
+    },
+    {
+      "label": "Probe: all cloud services",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/probe_providers.py",
+      "options": { "cwd": "${workspaceFolder}", "env": { "PYTHONPATH": "${workspaceFolder}/src" } },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "group": { "kind": "test", "isDefault": true }
+    },
+    {
+      "label": "Probe: Jira + Notion",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python scripts/verify_integrations.py",
+      "options": { "cwd": "${workspaceFolder}", "env": { "PYTHONPATH": "${workspaceFolder}/src" } },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" }
+    },
+    {
+      "label": "Test: pytest",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python -m pytest tests -o addopts= -q",
+      "options": { "cwd": "${workspaceFolder}", "env": { "PYTHONPATH": "${workspaceFolder}/src" } },
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Lint: ruff check",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python -m ruff check src tests app.py scripts",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "silent" }
+    },
+    {
+      "label": "Auth: create a user",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python -m sowsprint.security.passwd --user ${input:username} --json",
+      "options": { "cwd": "${workspaceFolder}", "env": { "PYTHONPATH": "${workspaceFolder}/src" } },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Auth: create a machine API key",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python -m sowsprint.security.passwd --api-key ${input:username}",
+      "options": { "cwd": "${workspaceFolder}", "env": { "PYTHONPATH": "${workspaceFolder}/src" } },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Show the LAN address for phone testing",
+      "type": "shell",
+      "command": "hostname -I | awk '{print $1}'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "username",
+      "type": "promptString",
+      "description": "Username or account name"
+    }
+  ]
+}
