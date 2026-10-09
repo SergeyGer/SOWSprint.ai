@@ -524,6 +524,36 @@ for the annotated list. The ones that matter most:
 
 ---
 
+## RAG corpus: current state and upgrade path
+
+The bundled corpus is **69 entries / 141 chunks / ~26k tokens** — hand-written
+adaptations drawn from CUAD and Pile of Law, split 34 EU / 35 US. It is enough to
+demonstrate jurisdiction-filtered retrieval and to ground the offline engine, and it is
+far too small to be authoritative.
+
+A survey of what is publicly downloadable, verified from dataset APIs and real file
+downloads rather than dataset cards, is in
+[**docs/corpus-research.md**](docs/corpus-research.md). Headlines:
+
+| Corpus | Size | Licence | Clause text? | Verdict |
+| :-- | --: | :-- | :-- | :-- |
+| CUAD | 159 MB / 510 contracts | CC BY 4.0 | **yes**, 26.8M chars | **primary upgrade, >250×** |
+| MAUD | 158 MB / 39,231 rows | CC BY 4.0 | yes (M&A domain) | useful |
+| LEDGAR | 28 MB / 80,000 rows | CC BY 4.0 | yes, 100 labels | useful |
+| SEC EDGAR EFTS | live, unauthenticated | public domain | yes, via EX-10 exhibits | best authentic US pipeline |
+| TED bulk XML | 9.4 MB/day | EU reuse | **no** — procedure notices | discovery only |
+| sam-contract-opportunities | 117 MB | CC BY 4.0 | **no** — notices only | useless here |
+| tenderguru catalog | 38 KB | none (0-byte LICENSE) | no | not a dataset |
+| Pile of Law | 44 GB | **NC** | yes | licence blocks it |
+
+**Two findings that change the design.** First, CUAD is US-only: it contains zero GDPR,
+AI Act or CCPA text, so it upgrades the US side and leaves the EU side on hand-written
+material. Second, **no public dataset provides EU regulatory clause text** — what exists
+is regulation text (AI Act articles, GDPR articles and recitals), which is the
+*obligation* side, not precedent clause language. Jurisdiction tags must be constructed,
+not downloaded, with the caveat that 24 of CUAD's 437 governing-law spans truncate
+before the state name.
+
 ## Limitations and roadmap
 
 Honest about what this is not:
