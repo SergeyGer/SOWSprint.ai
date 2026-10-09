@@ -29,6 +29,29 @@ from sowsprint.rag.store import build_store
 # --------------------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _isolate_settings() -> Iterator[None]:
+    """Re-neutralise the environment before every test.
+
+    The session-scoped fixture below strips ambient ``SOWSPRINT_*`` variables once, but
+    that is not sufficient: importing ``app`` — which any test touching the Chainlit
+    layer will do — calls ``load_dotenv()`` and puts the developer's real ``.env`` back
+    into ``os.environ`` for the remainder of the process. Five unrelated tests then fail
+    against live credentials, and the cause is nowhere near the symptom.
+
+    Cheaper and far more obvious than debugging that twice.
+    """
+    stripped = {
+        key: os.environ.pop(key) for key in list(os.environ) if key.startswith("SOWSPRINT_")
+    }
+    reset_settings_cache()
+    try:
+        yield
+    finally:
+        os.environ.update(stripped)
+        reset_settings_cache()
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _hermetic_settings() -> Iterator[None]:
     """Stop the developer's environment from influencing test outcomes.

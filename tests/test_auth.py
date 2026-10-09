@@ -268,3 +268,44 @@ class TestDeploymentSafety:
             ["sh", "-c", f'printf %s "{digest}"'], capture_output=True, text=True, check=True
         ).stdout
         assert echoed == digest
+
+
+class TestStartupValidation:
+    """A deployment that cannot authenticate anyone must not report itself healthy."""
+
+    def test_app_startup_builds_the_authenticator_eagerly(self) -> None:
+        """Regression: the authenticator used to be built on first login.
+
+        With authentication enabled and no accounts, the container started, passed its
+        health check, served the login form, and rejected every credential. The
+        docstring claimed startup validation that did not exist. Assert the wiring
+        rather than the intention.
+        """
+        import ast
+        from pathlib import Path
+
+        source = Path("app.py").read_text()
+        tree = ast.parse(source)
+        startup = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "on_app_startup"
+        )
+        body = ast.dump(startup)
+        assert "_authenticator" in body, (
+            "on_app_startup must construct the authenticator so a bad auth "
+            "configuration fails at boot rather than at the first login"
+        )
+
+    def test_auth_config_error_names_the_remedy(self) -> None:
+        class S:
+            auth_enabled = True
+            auth_users = ""
+            auth_api_keys = ""
+
+        with pytest.raises(AuthConfigError) as excinfo:
+            Authenticator.from_settings(S())
+        message = str(excinfo.value)
+        # The message has to be actionable without reading the source.
+        assert "passwd" in message
+        assert "SOWSPRINT_AUTH_ENABLED=false" in message

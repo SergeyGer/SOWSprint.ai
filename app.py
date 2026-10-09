@@ -171,11 +171,23 @@ async def _header_auth(headers) -> cl.User | None:
 
 
 def _settings() -> Settings:
-    cached = cl.user_session.get("settings")
-    if cached is None:
-        cached = get_settings()
-        cl.user_session.set("settings", cached)
-    return cached
+    """Settings for the current session, falling back to process settings.
+
+    ``on_app_startup`` and the authentication callbacks run on HTTP routes where no
+    Chainlit session exists, and ``cl.user_session`` raises ``LookupError: ContextVar
+    'chainlit'`` there. Caching per session is an optimisation, not a requirement, so
+    the absence of a session degrades to the process-wide instance rather than
+    aborting startup — index warming must not depend on a session that does not exist
+    yet.
+    """
+    try:
+        cached = cl.user_session.get("settings")
+        if cached is None:
+            cached = get_settings()
+            cl.user_session.set("settings", cached)
+        return cached
+    except Exception:  # noqa: BLE001 - no session context (startup, HTTP routes)
+        return get_settings()
 
 
 def _jurisdiction() -> str:
@@ -549,13 +561,26 @@ def _mime_for(path: Path) -> str:
 
 @cl.on_app_startup
 async def on_app_startup() -> None:
-    """Warm the retrieval index before the container reports healthy.
+    """Warm the retrieval index, and validate authentication before serving.
+
+    The authenticator is built eagerly here. Constructed lazily — on the first login
+    attempt — a deployment with authentication enabled and no accounts starts happily
+    and then rejects every credential: the application looks healthy and is unusable,
+    which is the worst of both. Failing at boot instead surfaces the exact command
+    needed to fix it, in the logs, before anyone tries to sign in.
 
     Running ingestion here rather than lazily on the first message means the
     container's readiness probe reflects a service that can actually draft a
     contract, instead of one that merely answers HTTP. Ingestion is idempotent, so a
     restart against a populated Qdrant volume is a cheap no-op.
     """
+    from sowsprint.security import AuthConfigError
+
+    try:
+        _authenticator()
+    except AuthConfigError as exc:
+        log.error("auth.configuration_invalid", error=str(exc))
+        raise
     settings = _settings()
     pipeline = get_pipeline(settings)
     try:

@@ -133,6 +133,14 @@ logs: ## Tail application logs
 ps: ## Show container and health status
 	docker compose ps
 
+.PHONY: env-check
+env-check: ## Report which credentials are missing (never prints values)
+	$(VENV_PY) scripts/setenv.py --show
+
+.PHONY: set-env
+set-env: ## Set one .env value safely: make set-env KEY=SOWSPRINT_... VALUE=...
+	$(VENV_PY) scripts/setenv.py $(KEY) $(VALUE)
+
 .PHONY: health
 health: ## Probe the running container's liveness and readiness
 	docker compose exec sowsprint-app python scripts/healthcheck.py --deep
