@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import sys
 import time
 import uuid
@@ -103,10 +105,15 @@ class Collector:
         let that regress unnoticed, so these checks now look for the markup itself.
         """
         marks = ("sow-cost-dashboard", "Session compute cost")
-        for msg in self.messages:
-            content = msg.get("content") or ""
-            if isinstance(content, str) and all(m in content for m in marks):
-                return content
+        for message_id in self._order:
+            payload = self._by_id[message_id]
+            # Chainlit carries message text in `output`; `content` is only used by
+            # some element types and is None for a plain message. Reading the wrong
+            # field is how a correctly rendered dashboard looked absent.
+            for field in ("output", "content"):
+                value = payload.get(field)
+                if isinstance(value, str) and all(mark in value for mark in marks):
+                    return value
         return ""
 
     def has_cost_dashboard(self) -> bool:
@@ -117,11 +124,28 @@ class Collector:
                 return True
         return False
 
-    def cost_dashboard_props(self) -> dict:
-        for element in reversed(self.elements):
-            if "CostDashboard" in json.dumps(element, default=str):
-                return element.get("props") or {}
-        return {}
+    def dashboard_facts(self) -> dict:
+        """Facts parsed out of the rendered dashboard HTML.
+
+        These checks used to read the props of a Chainlit ``CustomElement``. That
+        element never mounted in a browser, and reading its props is precisely what
+        made the failure invisible, so the assertions now parse the markup that a user
+        actually sees.
+        """
+        html = self.dashboard_html()
+        if not html:
+            return {}
+        # Read the spend specifically, not the largest figure on the card — the budget
+        # is always rendered and would let a zero-cost dashboard pass.
+        match = re.search(
+            r"Session compute cost.*?\$([0-9]+\.[0-9]+)", html, re.S | re.I
+        )
+        return {
+            "cost_usd": float(match.group(1)) if match else 0.0,
+            "has_cost_breakdown": "Cost by agent" in html,
+            "has_token_split": "Tokens" in html and "Prompt" in html,
+            "has_budget_bar": "Budget" in html,
+        }
 
     def messages(self) -> list[dict]:
         return [self._by_id[mid] for mid in self._order if "type" in self._by_id[mid]]
@@ -145,6 +169,11 @@ class Collector:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify the live SOWSprint Chainlit UI")
+    parser.add_argument(
+        "--api-key",
+        default=os.environ.get("SOWSPRINT_AUTH_API_KEY", ""),
+        help="Machine-account key for an authenticated deployment (X-API-Key).",
+    )
     parser.add_argument("--url", default="http://127.0.0.1:8000")
     parser.add_argument("--timeout", type=float, default=180.0)
     parser.add_argument(
@@ -176,8 +205,32 @@ def main(argv: list[str] | None = None) -> int:
     # (chainlit/server.py: SOCKET_IO_PATH).
     socket_path = "/ws/socket.io"
     print(f"→ connecting to {args.url}{socket_path} (session {session_id[:8]})")
+    # Authentication is two steps, not one. Chainlit's socket handshake checks the
+    # `access_token` cookie, so presenting the key on the socket itself is rejected;
+    # the key must first be exchanged at POST /auth/header, and the cookie it returns
+    # carried into the handshake.
+    socket_headers: dict[str, str] = {}
+    if args.api_key:
+        import httpx
+
+        response = httpx.post(
+            f"{args.url.rstrip('/')}/auth/header",
+            headers={"X-API-Key": args.api_key},
+            timeout=30.0,
+        )
+        if response.status_code != 200:
+            print(f"✗ authentication failed (HTTP {response.status_code})")
+            return 1
+        cookie = response.cookies.get("access_token")
+        if not cookie:
+            print("✗ authentication returned no access_token cookie")
+            return 1
+        socket_headers["Cookie"] = f"access_token={cookie}"
+        print(f"→ authenticated as a machine account (key …{args.api_key[-4:]})")
+
     client.connect(
         args.url,
+        headers=socket_headers,
         auth={
             "sessionId": session_id,
             "clientType": "web",
@@ -269,7 +322,7 @@ def main(argv: list[str] | None = None) -> int:
         if name:
             print(f"    · {name}")
 
-    dashboard_props = collector.cost_dashboard_props()
+    dashboard_facts = collector.dashboard_facts()
 
     checks: list[tuple[str, bool]] = [
         ("on_chat_start published capabilities", "SOWSprint.ai" in texts),
@@ -281,11 +334,11 @@ def main(argv: list[str] | None = None) -> int:
         ("cost dashboard rendered into the transcript", bool(collector.dashboard_html())),
         (
             "dashboard shows a non-zero session cost",
-            bool(dashboard_props) and float(dashboard_props.get("costUsd") or 0) > 0,
+            float(dashboard_facts.get("cost_usd") or 0) > 0,
         ),
         (
             "dashboard reports per-agent cost breakdown",
-            bool(dashboard_props.get("byNode")),
+            bool(dashboard_facts.get("has_cost_breakdown")),
         ),
         ("run reached a terminal status", "Run finished" in texts),
         ("deliverable files attached", len(collector.elements) >= 3),
@@ -295,13 +348,11 @@ def main(argv: list[str] | None = None) -> int:
         ),
     ]
 
-    if dashboard_props:
+    if dashboard_facts:
         print(
-            f"\n  dashboard: ${dashboard_props.get('costUsd')} / "
-            f"${dashboard_props.get('budgetUsd')} · "
-            f"{dashboard_props.get('totalTokens')} tokens · "
-            f"{dashboard_props.get('calls')} calls · "
-            f"agents={list((dashboard_props.get('byNode') or {}).keys())}"
+            f"\n  dashboard: ${dashboard_facts.get('cost_usd')} rendered · "
+            f"token split={dashboard_facts.get('has_token_split')} · "
+            f"per-agent={dashboard_facts.get('has_cost_breakdown')}"
         )
 
     failed = 0

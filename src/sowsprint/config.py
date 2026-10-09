@@ -197,6 +197,17 @@ class Settings(BaseSettings):
     notion_parent_page_id: str | None = None
 
     dry_run_integrations: bool = True
+
+    # ---------------------------------------------------------------- authentication
+    # On by default. The application spends real money on model calls and writes to
+    # Jira and Notion, and it binds 0.0.0.0 so a phone on the same Wi-Fi can reach it —
+    # which also means anything else on that network can. An open deployment is a
+    # decision an operator should make explicitly, not a default they inherit.
+    auth_enabled: bool = True
+    #: JSON array of accounts, as printed by `python -m sowsprint.security.passwd`.
+    auth_users: str = ""
+    #: Machine accounts for harnesses and CI: `name:key` pairs separated by semicolons.
+    auth_api_keys: str = ""
     """When true, Jira/Notion calls are simulated and payloads are surfaced in the UI."""
 
     # ---------------------------------------------------------------- voice
@@ -365,6 +376,7 @@ class Settings(BaseSettings):
             "reranker": self.resolved_rerank_provider.value,
             "vector_store": self.vector_backend.value,
             "transcription": self.resolved_whisper_provider,
+            "auth": "enabled" if self.auth_enabled else "DISABLED (open access)",
             "jira": self.integration_mode(self.jira_configured),
             "notion": self.integration_mode(self.notion_configured),
         }

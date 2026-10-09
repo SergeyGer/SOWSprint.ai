@@ -182,6 +182,7 @@ def test_capability_matrix_reports_every_subsystem():
         "reranker",
         "vector_store",
         "transcription",
+        "auth",
         "jira",
         "notion",
     }
@@ -194,6 +195,10 @@ def test_capability_matrix_reports_every_subsystem():
         "reranker": "heuristic",
         "vector_store": "memory",
         "transcription": "offline",
+        # Authentication is on by default, and the matrix must say so: an operator
+        # reading the dashboard should never have to guess whether the deployment is
+        # open.
+        "auth": "enabled",
         # No credentials and dry_run_integrations=True, so the connectors simulate.
         # The suffix matters: it separates "deliberately held in dry-run" from
         # "dry-run because nothing is configured" — a safety setting versus an

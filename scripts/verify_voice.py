@@ -23,6 +23,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 import uuid
@@ -105,6 +106,11 @@ class Collector:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify the live voice-scoping path")
+    parser.add_argument(
+        "--api-key",
+        default=os.environ.get("SOWSPRINT_AUTH_API_KEY", ""),
+        help="Machine-account key for an authenticated deployment (X-API-Key).",
+    )
     parser.add_argument("--url", default="http://127.0.0.1:8000")
     parser.add_argument("--timeout", type=float, default=120.0)
     parser.add_argument(

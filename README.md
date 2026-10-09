@@ -455,6 +455,57 @@ dashboard, and it is the check that would have caught it months earlier.
 
 ---
 
+## Authentication
+
+**On by default.** The application spends real money on model calls and writes to Jira
+and Notion, and it binds `0.0.0.0` so a phone on the same Wi-Fi can reach it — which
+also means anything else on that network can. An open deployment is an explicit
+decision, not an inherited default.
+
+```bash
+# Create a human account (prompts for the password; --password leaves it in history)
+python -m sowsprint.security.passwd --user alice --json
+
+# Create a machine account for the verification harnesses and CI
+python -m sowsprint.security.passwd --api-key ci
+
+# Chainlit signs session cookies with this
+chainlit create-secret
+```
+
+Put the results in `.env` as `SOWSPRINT_AUTH_USERS`, `SOWSPRINT_AUTH_API_KEYS` and
+`CHAINLIT_AUTH_SECRET`. A misconfigured deployment **fails at startup** rather than
+serving an open application the operator believes is locked.
+
+| Path | Used by | Mechanism |
+| :-- | :-- | :-- |
+| `POST /login` | people | username + password against an scrypt digest |
+| `POST /auth/header` | scripts, CI | `X-API-Key`, exchanged for a short-lived cookie |
+
+### Design notes
+
+**Passwords use `hashlib.scrypt`** from the standard library rather than bcrypt or
+argon2, so the image carries no native build dependency. The stored format is
+self-describing, so cost parameters can be raised later without invalidating digests.
+
+**The digest separator is a dot, not a dollar sign.** This is not a style choice.
+Digests live in `.env`, which Docker Compose reads with variable interpolation:
+`scrypt$16384$8$1$…` arrives inside the container as `scrypt`, because Compose reads
+`$16384` as an unset variable and substitutes nothing. Every login then fails with a
+*correct* password, and the only signal is a warning about an unset variable that
+scrolls past. This shipped once during development; there is now a test asserting the
+digest contains no `$`, and the parser rejects the dollar form with a message that
+names the trap.
+
+**Failed logins are throttled** per identity, and every failure path performs a hash
+anyway so response timing does not reveal whether a username exists.
+
+**Sessions are namespaced per account**, so two people sharing a deployment cannot read
+each other's transcripts or cost ledgers, and a budget applies per person.
+
+
+---
+
 ## Configuration
 
 Everything is a `SOWSPRINT_*` environment variable; see [`.env.example`](.env.example)

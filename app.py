@@ -28,6 +28,7 @@ from sowsprint.config import Settings, get_settings
 from sowsprint.llm import LLMError
 from sowsprint.observability import configure_logging, get_logger
 from sowsprint.rag.pipeline import get_pipeline
+from sowsprint.security import Authenticator
 from sowsprint.voice import build_audio_file, transcribe_audio
 
 log = get_logger(__name__)
@@ -98,6 +99,70 @@ STATUS_ICONS = {
     RunStatus.BUDGET_EXCEEDED.value: "💸",
     RunStatus.RUNNING.value: "⏳",
 }
+
+
+# --------------------------------------------------------------------------------------
+# Authentication
+# --------------------------------------------------------------------------------------
+# Built once at import so a misconfiguration fails at startup rather than at the first
+# login attempt, by which point a half-configured deployment is already serving.
+_AUTHENTICATOR: Authenticator | None = None
+
+
+def _authenticator() -> Authenticator:
+    """Process-wide authenticator.
+
+    Deliberately built from :func:`get_settings` rather than the session-cached
+    ``_settings()``: the authentication callbacks run on the HTTP routes ``/login``
+    and ``/auth/header``, where no Chainlit user session exists yet. Reading the
+    session there raised, every credential was rejected, and the failure looked
+    exactly like a wrong password.
+    """
+    global _AUTHENTICATOR
+    if _AUTHENTICATOR is None:
+        _AUTHENTICATOR = Authenticator.from_settings(get_settings())
+    return _AUTHENTICATOR
+
+
+def _current_account() -> str:
+    """Identifier of the signed-in principal, for session naming and log correlation.
+
+    Read from the authenticated user rather than from anything the callbacks wrote:
+    ``password_auth_callback`` executes *before* a session exists, so a value stored
+    there would be lost.
+    """
+    try:
+        user = cl.user_session.get("user")
+        if user is not None and getattr(user, "identifier", None):
+            return str(user.identifier)
+    except Exception:
+        pass
+    return "anonymous"
+
+
+# Chainlit exposes two credential paths and both are needed here:
+#   * POST /login       -> password_auth_callback, for people using the interface
+#   * POST /auth/header -> header_auth_callback,  for the harnesses and CI
+# A machine account authenticates with a key rather than a password, so unattended
+# scripts never carry a human's credentials.
+
+
+@cl.password_auth_callback
+async def _password_auth(username: str, password: str) -> cl.User | None:
+    account = _authenticator().authenticate_password(username, password)
+    if account is None:
+        # Never echoed into the transcript: a failed login must not confirm whether
+        # the username exists.
+        return None
+    return _authenticator().to_chainlit_user(account)
+
+
+@cl.header_auth_callback
+async def _header_auth(headers) -> cl.User | None:
+    account = _authenticator().authenticate_headers(headers)
+    if account is None:
+        return None
+    return _authenticator().to_chainlit_user(account)
 
 
 # --------------------------------------------------------------------------------------
@@ -531,7 +596,9 @@ async def set_starters() -> list[cl.Starter]:
 async def on_chat_start() -> None:
     """Open a session, publish capabilities and install the cost dashboard."""
     settings = _settings()
-    session_id = f"chainlit-{uuid.uuid4().hex[:10]}"
+    # Namespaced by account: two people on one deployment must not share a transcript,
+    # a cost ledger, or a budget.
+    session_id = f"{_current_account()}-{uuid.uuid4().hex[:8]}"
     cl.user_session.set("session_id", session_id)
     cl.user_session.set("jurisdiction", settings.default_jurisdiction)
 
@@ -823,7 +890,7 @@ async def _start_run(requirement: str) -> None:
     """Kick off a fresh engagement."""
     settings = _settings()
     jurisdiction = _jurisdiction()
-    session_id = cl.user_session.get("session_id") or f"chainlit-{uuid.uuid4().hex[:10]}"
+    session_id = cl.user_session.get("session_id") or f"{_current_account()}-{uuid.uuid4().hex[:8]}"
     auto_deploy = bool(cl.user_session.get("auto_deploy", False))
 
     if cl.user_session.get("dry_run_integrations") is not None:

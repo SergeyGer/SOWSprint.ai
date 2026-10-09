@@ -29,10 +29,12 @@ Exits non-zero when a check fails, so it can gate CI.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 
 from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 BRIEF = """# Visual check
 Build a React dashboard for 120 staff across 3 sites.
@@ -77,7 +79,24 @@ def wait_text(page: Page, needle: str, timeout: float) -> bool:
     return False
 
 
-def run(url: str, timeout_s: float, negotiate: bool) -> int:
+def log_in(page: Page, username: str, password: str) -> bool:
+    """Complete Chainlit's login form if the deployment requires authentication."""
+    try:
+        page.wait_for_selector("input[type=password]", timeout=15_000)
+    except PlaywrightTimeout:
+        return True  # no login form: either open, or already authenticated
+    print("  → login form present, signing in", flush=True)
+    page.fill("input[type=text], input[name=username]", username)
+    page.fill("input[type=password]", password)
+    page.keyboard.press("Enter")
+    try:
+        page.wait_for_selector("input[type=password]", state="detached", timeout=30_000)
+    except PlaywrightTimeout:
+        return False
+    return True
+
+
+def run(url: str, timeout_s: float, negotiate: bool, username: str, password: str) -> int:
     checks = Checks()
 
     with sync_playwright() as pw:
@@ -92,8 +111,17 @@ def run(url: str, timeout_s: float, negotiate: bool) -> int:
         )
         page.on("pageerror", lambda e: console_errors.append(f"PAGEERROR: {str(e)[:160]}"))
 
-        # ---- 1. the shell actually mounts -------------------------------------
+        # ---- 0. authentication -------------------------------------------------
         page.goto(url, wait_until="domcontentloaded", timeout=90_000)
+        logged_in = log_in(page, username, password)
+        checks.add("authentication accepted", logged_in)
+        if not logged_in:
+            tail = page.inner_text("body")[-200:].replace("\n", " | ")
+            print(f"      page tail: {tail}")
+            browser.close()
+            return 1
+
+        # ---- 1. the shell actually mounts -------------------------------------
         mounted = wait_text(page, "SOWSprint.ai", 90)
         checks.add("React app mounts (no blank page)", mounted)
         if not mounted:
@@ -207,9 +235,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="http://sowsprint-app:8000")
     parser.add_argument("--timeout", type=float, default=420.0)
+    parser.add_argument("--username", default=os.environ.get("SOWSPRINT_AUTH_USER", ""))
+    parser.add_argument("--password", default=os.environ.get("SOWSPRINT_AUTH_PASSWORD", ""))
     args = parser.parse_args(argv)
     print("SOWSprint.ai — visual verification (real browser)\n")
-    return run(args.url, args.timeout, True)
+    return run(args.url, args.timeout, True, args.username, args.password)
 
 
 if __name__ == "__main__":
