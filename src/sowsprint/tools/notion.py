@@ -14,7 +14,7 @@ from typing import Any
 
 from ..config import Settings, get_settings
 from ..observability.logging import get_logger
-from .registry import ToolExecutionResult
+from .types import ToolExecutionResult
 
 log = get_logger(__name__)
 

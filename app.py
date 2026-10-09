@@ -497,8 +497,11 @@ async def _drive(
             if stage in ("legal", "critic", "tools"):
                 await _update_dashboard(session)
     finally:
+        # Drain the worker before reading the outcome. The result is deliberately
+        # discarded — a failure inside it has already been reported through the queue —
+        # but the await itself is what guarantees the thread has finished.
         with contextlib.suppress(Exception):
-            await producer
+            _ = await producer
 
     return session.last_outcome or session.snapshot()
 
