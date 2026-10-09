@@ -133,6 +133,12 @@ logs: ## Tail application logs
 ps: ## Show container and health status
 	docker compose ps
 
+.PHONY: jira-csv
+jira-csv: ## Convert the latest backlog into a Jira-importable CSV
+	@latest=$$(ls -1dt data/artifacts/*/ | head -1); \
+	$(VENV_PY) scripts/jira_csv.py "$$latest/jira_backlog.csv" --team-managed \
+	  -o "$$latest/jira_backlog-import.csv"
+
 .PHONY: env-check
 env-check: ## Report which credentials are missing (never prints values)
 	$(VENV_PY) scripts/setenv.py --show

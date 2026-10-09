@@ -219,6 +219,31 @@ The approval gate lists every planned call before it happens, which is the momen
 check that the workspace, project key and page look right. Test against a throwaway Jira
 site and an empty Notion page first.
 
+### Getting the backlog into Jira
+
+The application creates the project, epics and stories itself through the API — flip
+`SOWSPRINT_DRY_RUN_INTEGRATIONS=false` and approve at the gate. The generated CSV is a
+fallback for importing by hand, or for another tool.
+
+If you do import the CSV manually, convert it first:
+
+```bash
+make jira-csv     # writes <run>/jira_backlog-import.csv
+```
+
+Three columns of the raw export break Jira's manual importer, and the converter removes
+them: `Issue Key` (Jira reads a mapped key as "update this issue", so every row fails),
+`Story Points` and `Epic Link` (custom fields this tenant does not have), and
+`Acceptance Criteria` (folded into the description rather than dropped).
+
+Then in Jira: **Settings (⚙) → System → Import and Export → External System Import →
+CSV**, choose the project, and map each column. Anything left unmapped is ignored rather
+than fatal.
+
+**The connector cannot attach files.** Epics and stories are text; uploading a generated
+PDF as an issue attachment is a manual step, or a small addition to
+`JiraConnector` (Jira's `/rest/api/3/issue/{key}/attachments` endpoint).
+
 **Two known caveats, stated because they will bite:**
 
 - The Jira connector creates a **company-managed** project from the Scrum template,
