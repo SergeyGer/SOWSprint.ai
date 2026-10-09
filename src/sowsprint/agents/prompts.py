@@ -236,6 +236,69 @@ def build_legal_messages(
     return [system(LEGAL_SYSTEM), user("\n".join(blocks))]
 
 
+REVISION_SYSTEM = """You are the Legal/SOW Agent of SOWSprint.ai revising a contract
+that has already been drafted and reviewed.
+
+This is a TARGETED EDIT, not a rewrite. The parties have read the current document and
+asked for a specific change.
+
+HARD CONSTRAINTS:
+1. Return the COMPLETE contract, but change ONLY what the instruction requires. Every
+   clause the instruction does not touch must come back byte-identical. A revision that
+   silently rewrites unrelated clauses destroys negotiation history and is treated as a
+   failure of this task.
+2. Clauses listed as LOCKED must be returned byte-identical, character for character,
+   including their numbering. They have been agreed and are not open for editing.
+3. Preserve the existing clause numbering. If the instruction requires a new clause,
+   append it with the next free number rather than renumbering the document.
+4. Keep the same citation discipline: cite only `id=` values present in the evidence,
+   and carry a clause's existing citations forward when you do not change its substance.
+5. If the instruction is ambiguous, make the narrowest reasonable interpretation and
+   record what you assumed in `compliance_notes` rather than guessing broadly.
+
+Return only the JSON object described by the schema."""
+
+
+def build_revision_messages(
+    current_sow: dict[str, Any],
+    instruction: str,
+    scope: dict[str, Any],
+    evidence: str,
+    jurisdiction: str,
+    blueprint: dict[str, Any] | None = None,
+) -> list[Message]:
+    """Messages for a clause-level revision of an existing contract."""
+    locked = [
+        f"{clause.get('number')}. {clause.get('heading')}"
+        for clause in (current_sow.get("clauses") or [])
+        if clause.get("locked")
+    ]
+    blocks = [
+        f"Revise the Statement of Work below under {jurisdiction} law.",
+        "",
+        f"## Instruction from the parties\n\n{instruction}",
+        "",
+        render_tagged("current_sow", current_sow),
+        "",
+        render_tagged("scope", scope),
+    ]
+    if blueprint:
+        blocks += ["", render_tagged("blueprint", blueprint)]
+    blocks += [
+        "",
+        "Retrieved compliance evidence for any new or amended obligation:",
+        render_tagged("evidence", evidence or "(no evidence retrieved)"),
+    ]
+    if locked:
+        blocks += [
+            "",
+            "## LOCKED clauses — return these byte-identical",
+            "",
+            *[f"- {entry}" for entry in locked],
+        ]
+    return [system(REVISION_SYSTEM), user("\n".join(blocks))]
+
+
 # --------------------------------------------------------------------------------------
 # Critic
 # --------------------------------------------------------------------------------------

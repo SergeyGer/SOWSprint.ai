@@ -13,8 +13,9 @@ The human-in-the-loop protocol is a small, explicit state machine::
 
 from __future__ import annotations
 
+import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -27,8 +28,10 @@ from ..models import (
     CostReport,
     CritiqueReport,
     RequirementScope,
+    SOWDiff,
     SOWDocument,
     TechnicalBlueprint,
+    diff_sow,
 )
 from ..observability.logging import bind_run, get_logger
 from ..rag.pipeline import RagPipeline, get_pipeline
@@ -202,6 +205,175 @@ class ScopingSession:
     def resume_approval(self, approved: bool) -> RunOutcome:
         """Record the reviewer's decision at the approval gate."""
         return self._resume(bool(approved))
+
+    # ------------------------------------------------------------------ revision
+    def revise(
+        self,
+        instruction: str,
+        *,
+        lock: Sequence[str] = (),
+        unlock: Sequence[str] = (),
+    ) -> Iterator[StepEvent]:
+        """Apply a targeted change to the current contract.
+
+        Revision is deliberately a separate workflow from drafting rather than another
+        node in the graph. Drafting produces a document; revision edits one that the
+        parties have already read, and the guarantee that matters — that untouched and
+        locked clauses come back unchanged — is enforced in code rather than by asking
+        a model nicely.
+
+        Yields step events; the result is on :attr:`last_outcome`.
+        """
+        from ..llm.base import LLMError
+        from ..llm.offline import (
+            enforce_lock,
+            legal_revision_offline,
+        )
+        from .nodes import _event
+        from .state import Stage
+
+        state = dict(self.state)
+        current = _validate(SOWDocument, state.get("draft_sow"))
+        if current is None:
+            raise RuntimeError("There is no contract to revise yet.")
+
+        # ---- apply lock changes the operator requested ------------------------
+        if lock or unlock:
+            self.set_locks(lock, locked=True)
+            self.set_locks(unlock, locked=False)
+            state = dict(self.state)
+            current = _validate(SOWDocument, state.get("draft_sow")) or current
+
+        started = time.perf_counter()
+        assert self.nodes is not None
+        client = self.nodes.client
+
+        if getattr(client, "provider", "") == "offline":
+            revised = legal_revision_offline(
+                current.model_dump(mode="json"),
+                instruction,
+                state.get("scope") or {},
+                state.get("evidence", ""),
+                str(state.get("jurisdiction", "EU")),
+            )
+            response = None
+        else:
+            from .prompts import build_revision_messages
+
+            messages = build_revision_messages(
+                current.model_dump(mode="json"),
+                instruction,
+                state.get("scope") or {},
+                state.get("evidence", ""),
+                str(state.get("jurisdiction", "EU")),
+                blueprint=state.get("blueprint"),
+            )
+            response = client.complete(
+                messages,
+                schema=SOWDocument,
+                node="legal",
+                tier=self.nodes.router.tier_for("legal"),
+                max_tokens=self.nodes.router.max_tokens_for("legal"),
+            )
+            revised = response.parsed
+            if not isinstance(revised, SOWDocument):
+                raise LLMError("Revision returned no valid SOWDocument")
+
+        # ---- the guarantee ----------------------------------------------------
+        revised, restored = enforce_lock(current, revised)
+        revised.revision = current.revision + 1
+
+        diff = diff_sow(current, revised)
+        duration = (time.perf_counter() - started) * 1000.0
+
+        event = _event(
+            "revision",
+            Stage.LEGAL,
+            f"Revision {revised.revision} — {len(diff.edited)} clause(s) changed",
+            detail=(
+                f"{diff.summary()}"
+                + (f" · {len(restored)} locked clause(s) restored" if restored else "")
+            ),
+            duration_ms=duration,
+            response=response,
+            payload={
+                "instruction": instruction,
+                "edited": [
+                    {"number": c.number, "heading": c.heading, "change": c.change}
+                    for c in diff.edited
+                ],
+                "restored_locks": restored,
+            },
+        )
+
+        # ---- re-audit the revised contract ------------------------------------
+        audit_events: list[StepEvent] = []
+        critique_payload = state.get("critique")
+        try:
+            audited_state = {
+                **state,
+                "draft_sow": revised.model_dump(mode="json"),
+                "critique_attempts": 0,
+            }
+            audit_update = self.nodes.critic(audited_state)
+            audit_events = list(audit_update.get("events") or [])
+            critique_payload = audit_update.get("critique", critique_payload)
+        except Exception as exc:
+            log.warning("revision.audit_failed", error=str(exc))
+
+        # ---- persist -----------------------------------------------------------
+        self._last_state = {
+            **state,
+            "draft_sow": revised.model_dump(mode="json"),
+            "critique": critique_payload,
+            "stage": Stage.LEGAL.value,
+            "status": state.get("status", RunStatus.RUNNING.value),
+        }
+        artifacts = self._render_artifacts(self._last_state, diff=diff)
+        self._last_state["artifacts"] = artifacts
+
+        yield event
+        yield from audit_events
+        self.last_outcome = self._to_outcome(self._last_state, None)
+
+    def set_locks(self, numbers: Sequence[str], *, locked: bool) -> list[str]:
+        """Lock or unlock clauses by number. Returns the numbers actually changed."""
+
+        state = dict(self.state)
+        document = _validate(SOWDocument, state.get("draft_sow"))
+        if document is None:
+            return []
+
+        wanted = {str(n).strip() for n in numbers if str(n).strip()}
+        changed: list[str] = []
+        for clause in document.clauses:
+            matches = clause.number in wanted or clause.heading in wanted
+            if matches and clause.locked is not locked:
+                clause.locked = locked
+                changed.append(clause.number)
+        self._last_state = {**state, "draft_sow": document.model_dump(mode="json")}
+        log.info("revision.locks_changed", locked=locked, clauses=changed)
+        return changed
+
+    def _render_artifacts(self, state: dict[str, Any], *, diff: SOWDiff | None = None) -> list[dict[str, Any]]:
+        """Re-render deliverables for the current state, optionally with a diff."""
+        from ..export.bundle import render_deliverables
+
+        try:
+            return render_deliverables(
+                session_id=self.session_id,
+                run_id=str(state.get("run_id", self.run_id)),
+                scope=state.get("scope"),
+                blueprint=state.get("blueprint"),
+                sow=state.get("draft_sow"),
+                critique=state.get("critique"),
+                integrations=state.get("integrations"),
+                cost=self.cost_report().model_dump(mode="json"),
+                diff=diff,
+            )
+        except Exception as exc:
+            log.error("revision.export_failed", error=str(exc))
+            return []
 
     def cancel(self) -> None:
         """Mark the run as failed without touching external systems."""

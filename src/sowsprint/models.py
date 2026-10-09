@@ -337,6 +337,14 @@ class SOWClause(BaseModel):
         description="Chunk IDs retrieved from the compliance corpus supporting this clause.",
     )
     jurisdiction_tags: list[str] = Field(default_factory=list)
+    locked: bool = Field(
+        default=False,
+        description=(
+            "A clause the parties have already agreed. Revision must return it "
+            "byte-identical; the guarantee is enforced in code, not requested of the "
+            "model."
+        ),
+    )
 
 
 class SOWDocument(BaseModel):
@@ -362,7 +370,11 @@ class SOWDocument(BaseModel):
     data_protection: str = ""
     intellectual_property: str = ""
     retrieved_evidence_ids: list[str] = Field(default_factory=list)
+    revision: int = Field(default=0, ge=0, description="Incremented by each revision.")
     generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    def locked_numbers(self) -> list[str]:
+        return [clause.number for clause in self.clauses if clause.locked]
 
     def word_count(self) -> int:
         return len(" ".join(c.body for c in self.clauses).split())
@@ -390,6 +402,102 @@ class CriticFinding(BaseModel):
     @property
     def is_blocking(self) -> bool:
         return self.severity in (Severity.HIGH, Severity.CRITICAL)
+
+
+class ClauseChange(BaseModel):
+    """One clause's fate between two revisions of a contract."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    number: str
+    heading: str
+    change: Literal["added", "removed", "modified", "unchanged", "locked"]
+    old_body: str = ""
+    new_body: str = ""
+    old_citations: list[str] = Field(default_factory=list)
+    new_citations: list[str] = Field(default_factory=list)
+
+    @property
+    def is_edit(self) -> bool:
+        return self.change in ("added", "removed", "modified")
+
+
+class SOWDiff(BaseModel):
+    """Clause-level comparison of two contract revisions."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    changes: list[ClauseChange] = Field(default_factory=list)
+    from_revision: int = 0
+    to_revision: int = 1
+
+    @property
+    def edited(self) -> list[ClauseChange]:
+        return [c for c in self.changes if c.is_edit]
+
+    @property
+    def preserved(self) -> list[ClauseChange]:
+        return [c for c in self.changes if c.change == "locked"]
+
+    def summary(self) -> str:
+        counts: dict[str, int] = {}
+        for change in self.changes:
+            counts[change.change] = counts.get(change.change, 0) + 1
+        parts = [f"{count} {name}" for name, count in sorted(counts.items())]
+        return ", ".join(parts) if parts else "no clauses"
+
+
+def diff_sow(previous: SOWDocument, current: SOWDocument) -> SOWDiff:
+    """Compare two contract revisions clause by clause.
+
+    Matching is by clause number first (the stable identifier across a revision) and
+    by heading as a fallback, so a renumbered clause is still recognised as an edit
+    rather than as a delete plus an add.
+    """
+    diff = SOWDiff(
+        from_revision=previous.revision,
+        to_revision=current.revision,
+    )
+    by_number = {c.number: c for c in previous.clauses}
+    by_heading = {c.heading.casefold(): c for c in previous.clauses}
+    matched: set[str] = set()
+
+    for clause in current.clauses:
+        old = by_number.get(clause.number) or by_heading.get(clause.heading.casefold())
+        if old is not None:
+            matched.add(old.number)
+        if clause.locked:
+            change = "locked"
+        elif old is None:
+            change = "added"
+        elif old.body.strip() == clause.body.strip():
+            change = "unchanged"
+        else:
+            change = "modified"
+        diff.changes.append(
+            ClauseChange(
+                number=clause.number,
+                heading=clause.heading,
+                change=change,  # type: ignore[arg-type]
+                old_body=old.body if old else "",
+                new_body=clause.body,
+                old_citations=list(old.citations) if old else [],
+                new_citations=list(clause.citations),
+            )
+        )
+
+    for clause in previous.clauses:
+        if clause.number not in matched:
+            diff.changes.append(
+                ClauseChange(
+                    number=clause.number,
+                    heading=clause.heading,
+                    change="removed",
+                    old_body=clause.body,
+                    old_citations=list(clause.citations),
+                )
+            )
+    return diff
 
 
 class CritiqueReport(BaseModel):
@@ -466,6 +574,7 @@ class TokenUsage(BaseModel):
     prompt_tokens: int = Field(default=0, ge=0)
     completion_tokens: int = Field(default=0, ge=0)
     cached_tokens: int = Field(default=0, ge=0)
+    cache_savings_usd: float = Field(default=0.0, ge=0.0)
     latency_ms: float = Field(default=0.0, ge=0.0)
     cost_usd: float = Field(default=0.0, ge=0.0)
     success: bool = True
@@ -487,6 +596,9 @@ class CostReport(BaseModel):
     completion_tokens: int = 0
     total_tokens: int = 0
     cost_usd: float = 0.0
+    #: Prompt-cache reads across the session, and what they avoided spending.
+    cached_tokens: int = 0
+    cache_savings_usd: float = 0.0
     budget_usd: float = 2.50
     by_node: dict[str, dict[str, float]] = Field(default_factory=dict)
     by_model: dict[str, dict[str, float]] = Field(default_factory=dict)
@@ -537,6 +649,7 @@ class ArtifactRef(BaseModel):
         "backlog_json",
         "jira_csv",
         "audit_markdown",
+        "revision_markdown",
         "report_json",
     ]
     path: str

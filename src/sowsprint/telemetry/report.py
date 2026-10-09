@@ -31,9 +31,14 @@ def _money(value: float) -> str:
 
 def one_liner(report: CostReport) -> str:
     """Single-line summary for a sticky header."""
+    cached = (
+        f" · {report.cached_tokens:,} cached (−{_money(report.cache_savings_usd)})"
+        if report.cached_tokens
+        else ""
+    )
     return (
         f"💸 {_money(report.cost_usd)} / ${report.budget_usd:.2f} "
-        f"· {report.total_tokens:,} tok · {report.calls} calls"
+        f"· {report.total_tokens:,} tok · {report.calls} calls{cached}"
     )
 
 
@@ -55,6 +60,12 @@ def render_dashboard(report: CostReport, *, top_n: int = 6) -> str:
         f"| LLM calls | {report.calls} |",
         f"| Avg latency | {report.avg_latency_ms:,.0f} ms |",
     ]
+
+    if report.cached_tokens:
+        lines.append(
+            f"| Prompt cache | {report.cached_tokens:,} tok reused "
+            f"(saved {_money(report.cache_savings_usd)}) |"
+        )
 
     if report.by_node:
         lines += ["", "**Cost by agent**", "", "| Agent | Calls | Tokens | Cost |", "| :-- | --: | --: | --: |"]
@@ -92,6 +103,8 @@ def render_plain(report: CostReport) -> str:
             f"  completion tokens: {report.completion_tokens:,}",
             f"  total tokens     : {report.total_tokens:,}",
             f"  cost (USD)       : {_money(report.cost_usd)}",
+            f"  prompt cache     : {report.cached_tokens:,} tok reused "
+            f"(saved {_money(report.cache_savings_usd)})",
             f"  budget (USD)     : {report.budget_usd:.2f} "
             f"({report.budget_used_pct:.1f}% used)",
             f"  avg latency (ms) : {report.avg_latency_ms:,.0f}",

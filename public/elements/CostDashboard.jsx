@@ -32,6 +32,8 @@ export default function CostDashboard(props) {
     totalTokens = 0,
     calls = 0,
     avgLatencyMs = 0,
+    cachedTokens = 0,
+    cacheSavingsUsd = 0,
     byNode = {},
     simulated = true,
     updatedAt = "",
@@ -169,6 +171,17 @@ export default function CostDashboard(props) {
           <div style={label}>Avg latency</div>
           <div style={metricValue}>{Math.round(avgLatencyMs)} ms</div>
         </div>
+        {cachedTokens > 0 && (
+          <div style={metric} title="Prompt-cache reads: tokens served at a fraction of the input rate">
+            <div style={label}>Cache hit</div>
+            <div style={{ ...metricValue, color: "#34d399" }}>
+              {compact(cachedTokens)}
+              <span style={{ fontSize: "10px", color: "#94a3b8", marginLeft: "4px" }}>
+                −{money(cacheSavingsUsd)}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {nodes.length > 0 && (

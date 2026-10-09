@@ -31,6 +31,22 @@ class ModelPrice:
     cached_input_per_mtok: float | None = None
     provider: str = "unknown"
 
+    def cache_savings(self, cached_tokens: int) -> float:
+        """USD avoided by serving ``cached_tokens`` from the prompt cache.
+
+        A cache read is billed at a fraction of the input rate (10% at Anthropic,
+        typically 25-50% at OpenAI), so the saving is the difference against what
+        those tokens would otherwise have cost.
+        """
+        if cached_tokens <= 0:
+            return 0.0
+        cached_rate = (
+            self.cached_input_per_mtok
+            if self.cached_input_per_mtok is not None
+            else self.input_per_mtok
+        )
+        return max(0.0, cached_tokens * (self.input_per_mtok - cached_rate)) / MILLION
+
     def cost(self, prompt_tokens: int, completion_tokens: int, cached_tokens: int = 0) -> float:
         """Return the USD cost of one call, honouring discounted cached reads."""
         billable_prompt = max(0, prompt_tokens - cached_tokens)

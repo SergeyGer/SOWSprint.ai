@@ -81,6 +81,34 @@ class AnthropicClient(BaseLLMClient):
             kwargs["base_url"] = self.settings.anthropic_base_url
         self._client = Anthropic(**kwargs)
 
+    @staticmethod
+    def _cacheable_system(system_prompt: str, model: str) -> Any:
+        """Mark the persona + schema block as an ephemeral prompt-cache breakpoint.
+
+        Every node re-sends a large static prefix on every call — the persona plus the
+        JSON schema, which runs to roughly 900 tokens for ``TechnicalBlueprint``. Across
+        retries, clarification rounds, repair loops and successive engagements that
+        prefix is byte-identical, so Anthropic can serve it from cache at 10% of the
+        input rate instead of re-billing it.
+
+        Anthropic caches the prefix *up to and including* the marked block, which is why
+        the breakpoint goes on the system block: everything before it is stable, and
+        everything after it (the evidence, the draft) is call-specific.
+
+        The minimum cacheable prefix is 1024 tokens for Sonnet/Opus and 2048 for Haiku;
+        below that the API simply ignores the marker, so marking unconditionally is
+        safe.
+        """
+        if not system_prompt:
+            return None
+        return [
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+
     def _invoke(
         self,
         messages: Sequence[Message],
@@ -102,7 +130,7 @@ class AnthropicClient(BaseLLMClient):
 
         request: dict[str, Any] = {
             "model": model,
-            "system": system_prompt or None,
+            "system": self._cacheable_system(system_prompt, model),
             "messages": turns,
             "max_tokens": max_tokens,
         }
@@ -128,9 +156,20 @@ class AnthropicClient(BaseLLMClient):
             block.text for block in response.content if getattr(block, "type", "") == "text"
         )
         usage = getattr(response, "usage", None)
+        cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+        cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+        if cache_read or cache_write:
+            log.info(
+                "anthropic.prompt_cache",
+                model=model,
+                node=node,
+                cache_read_tokens=cache_read,
+                cache_write_tokens=cache_write,
+            )
         return text, {
             "prompt_tokens": getattr(usage, "input_tokens", 0) or 0,
             "completion_tokens": getattr(usage, "output_tokens", 0) or 0,
-            "cached_tokens": getattr(usage, "cache_read_input_tokens", 0) or 0,
+            "cached_tokens": cache_read,
+            "cache_write_tokens": cache_write,
             "finish_reason": getattr(response, "stop_reason", None),
         }

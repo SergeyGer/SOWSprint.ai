@@ -181,6 +181,8 @@ async def _update_dashboard(session: ScopingSession | None) -> None:
         "totalTokens": report.total_tokens,
         "calls": report.calls,
         "avgLatencyMs": round(report.avg_latency_ms, 1),
+        "cachedTokens": report.cached_tokens,
+        "cacheSavingsUsd": round(report.cache_savings_usd, 6),
         "budgetUsedPct": round(report.budget_used_pct, 2),
         "byNode": {k: dict(v) for k, v in report.by_node.items()},
         "simulated": _settings().offline_mode,
@@ -592,6 +594,10 @@ async def on_chat_start() -> None:
                 "",
                 "**Send a requirement** as text, or tap the microphone to dictate it. "
                 "Switch jurisdiction any time from the settings panel next to the composer.",
+                "",
+                "Once a contract exists you can negotiate it: `/revise <instruction>` to "
+                "change specific clauses, `/lock 6` to freeze the ones already agreed, "
+                "`/diff` to see what moved. Send `/help` for the full list.",
             ]
         )
     ).send()
@@ -718,9 +724,62 @@ async def on_message(message: cl.Message) -> None:
 
     session = _session()
 
-    # ---------------------------------------------------------- in-flight run
+    # ---------------------------------------------------------- commands
     if session is not None and session.last_outcome is not None:
         outcome = session.last_outcome
+        has_contract = outcome.sow is not None
+
+        if text.strip().casefold() in ("/help", "/commands"):
+            await cl.Message(content=REVISION_HELP).send()
+            return
+
+        lock_command = _parse_lock_command(text)
+        if lock_command and has_contract:
+            verb, targets = lock_command
+            if not targets:
+                await cl.Message(content=REVISION_HELP).send()
+                return
+            changed = session.set_locks(targets, locked=(verb == "lock"))
+            if changed:
+                await cl.Message(
+                    content=(
+                        f"{'🔒 Locked' if verb == 'lock' else '🔓 Unlocked'}: "
+                        + ", ".join(f"`{n}`" for n in changed)
+                    )
+                ).send()
+            else:
+                await cl.Message(
+                    content=f"Nothing to change — clauses {targets} were not found "
+                    "or already had that state. Try `/clauses`."
+                ).send()
+            await _update_dashboard(session)
+            return
+
+        if text.strip().casefold().startswith("/clauses") and has_contract:
+            rows = ["| # | Clause | State |", "| --: | :-- | :-- |"]
+            for clause in outcome.sow.clauses:
+                rows.append(
+                    f"| {clause.number} | {clause.heading} | "
+                    f"{'🔒 locked' if clause.locked else 'editable'} |"
+                )
+            await cl.Message(content="\n".join(rows)).send()
+            return
+
+        if text.strip().casefold().startswith("/revise") and has_contract:
+            instruction = text.strip()[len("/revise") :].strip()
+            if not instruction:
+                await cl.Message(content=REVISION_HELP).send()
+                return
+            await _run_revision(session, instruction)
+            return
+
+        if text.strip().casefold().startswith("/diff") and has_contract:
+            last = cl.user_session.get("last_diff")
+            await cl.Message(
+                content=last
+                or "No revision yet in this session. Use `/revise <instruction>` first."
+            ).send()
+            return
 
         if outcome.awaiting_clarification:
             await cl.Message(
@@ -733,15 +792,40 @@ async def on_message(message: cl.Message) -> None:
         if outcome.awaiting_approval:
             decision = _parse_decision(text)
             if decision is None:
-                await cl.Message(
-                    content="Please reply `approve` or `reject`, or use the buttons above."
-                ).send()
+                # Anything that is not a verdict is read as a change request. This is
+                # the natural place to negotiate: the reviewer is looking at the
+                # contract and wants something different before signing.
+                await _run_revision(session, text.strip())
                 return
             await _provision(session, decision)
             return
 
     # ---------------------------------------------------------- new engagement
     await _start_run(text)
+
+
+#: Slash commands understood after a contract exists.
+REVISION_HELP = """**Contract commands**
+
+| Command | Effect |
+| :-- | :-- |
+| `/revise <instruction>` | Change the contract, e.g. `/revise make the liability cap mutual` |
+| `/lock 6 7` | Freeze clauses 6 and 7 — revision returns them byte-identical |
+| `/unlock 6` | Release a clause |
+| `/diff` | Show what changed in the last revision |
+| `/clauses` | List clauses with their lock state |
+"""
+
+
+def _parse_lock_command(text: str) -> tuple[str, list[str]] | None:
+    """Parse ``/lock 6 7`` or ``/lock Liability`` into (verb, targets)."""
+    stripped = text.strip()
+    for verb in ("lock", "unlock"):
+        prefix = f"/{verb}"
+        if stripped.casefold().startswith(prefix):
+            targets = stripped[len(prefix) :].replace(",", " ").split()
+            return verb, targets
+    return None
 
 
 def _parse_decision(text: str) -> bool | None:
@@ -798,6 +882,37 @@ async def _start_run(requirement: str) -> None:
     except LLMError as exc:
         await cl.Message(content=f"⚠️ Provider error: `{exc}`").send()
         return
+
+    await _present_outcome(result)
+
+
+async def _run_revision(session: ScopingSession, instruction: str) -> None:
+    """Apply a targeted change and report what moved."""
+    await cl.Message(
+        content=f"✏️ **Revising** — *{instruction}*\n\nOnly the affected clauses will change."
+    ).send()
+
+    try:
+        result = await _drive(session, session.revise(instruction))
+    except Exception as exc:
+        await cl.Message(content=f"⚠️ Revision failed: `{type(exc).__name__}: {exc}`").send()
+        return
+
+    # A diff is the point of a targeted edit: show what moved and what was held.
+    from sowsprint.export.sow_markdown import render_sow_diff
+    from sowsprint.models import SOWDocument, diff_sow
+
+    previous = cl.user_session.get("previous_sow")
+    if isinstance(previous, SOWDocument) and result.sow is not None:
+        diff = diff_sow(previous, result.sow)
+        rendered = render_sow_diff(diff)
+        cl.user_session.set("last_diff", rendered)
+        await cl.Message(content=rendered).send()
+    if result.sow is not None:
+        cl.user_session.set("previous_sow", result.sow)
+
+    if result.sow is not None:
+        cl.user_session.set("previous_sow", result.sow)
 
     await _present_outcome(result)
 

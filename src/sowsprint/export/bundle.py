@@ -18,12 +18,18 @@ from ..models import (
     ArtifactRef,
     CritiqueReport,
     RequirementScope,
+    SOWDiff,
     SOWDocument,
     TechnicalBlueprint,
 )
 from ..observability.logging import get_logger
 from .jira_csv import render_jira_csv
-from .sow_markdown import render_backlog_markdown, render_critique_markdown, render_sow_markdown
+from .sow_markdown import (
+    render_backlog_markdown,
+    render_critique_markdown,
+    render_sow_diff,
+    render_sow_markdown,
+)
 from .sow_pdf import render_sow_pdf
 
 log = get_logger(__name__)
@@ -59,6 +65,7 @@ def render_deliverables(
     critique: dict[str, Any] | None,
     integrations: list[dict[str, Any]] | None,
     cost: dict[str, Any] | None,
+    diff: SOWDiff | None = None,
 ) -> list[dict[str, Any]]:
     """Write every artefact for a completed run and return their references.
 
@@ -130,6 +137,21 @@ def render_deliverables(
         except Exception as exc:
             log.error("export.audit_failed", error=str(exc))
 
+    # ---------------------------------------------------------------- revision diff
+    if diff is not None:
+        try:
+            path = target / f"revision_{diff.from_revision}_to_{diff.to_revision}.md"
+            path.write_text(render_sow_diff(diff), encoding="utf-8")
+            refs.append(
+                _ref(
+                    "revision_markdown",
+                    path,
+                    f"Revision diff {diff.from_revision} → {diff.to_revision}",
+                )
+            )
+        except Exception as exc:
+            log.error("export.diff_failed", error=str(exc))
+
     # ---------------------------------------------------------------- run report
     try:
         path = target / "run_report.json"
@@ -143,6 +165,8 @@ def render_deliverables(
                     "blueprint_summary": _blueprint_summary(parsed_blueprint),
                     "sow_summary": _sow_summary(parsed_sow),
                     "critique": critique,
+                    "revision": (parsed_sow.revision if parsed_sow else None),
+                    "diff": diff.model_dump(mode="json") if diff else None,
                     "integrations": integrations or [],
                     "cost": cost or {},
                 },

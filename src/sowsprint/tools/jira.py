@@ -28,9 +28,15 @@ log = get_logger(__name__)
 class JiraConnector:
     """Thin, dependency-light Jira Cloud client."""
 
+    #: Fallback id for Story Points. Most tenants use it, but not all — the field is
+    #: absent on free plans and some team-managed projects, and writing an unknown
+    #: custom field makes Jira reject the whole issue with a 400.
+    DEFAULT_STORY_POINTS_FIELD = "customfield_10016"
+
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         self._counter = 0
+        self._fields: dict[str, str] | None = None
 
     # ------------------------------------------------------------------ mode
     @property
@@ -63,6 +69,40 @@ class JiraConnector:
             if not response.content:
                 return {"status": response.status_code}
             return response.json()
+
+    # ------------------------------------------------------------------ field discovery
+    def field_map(self) -> dict[str, str]:
+        """Map well-known field names to this tenant's ids, discovering once.
+
+        Jira field ids are per-tenant for custom fields, and a custom field may not
+        exist at all. Discovering them up front turns a mid-run 400 into an informed
+        decision to omit the field.
+        """
+        if self._fields is not None:
+            return self._fields
+        if self.dry_run:
+            self._fields = {}
+            return self._fields
+        try:
+            fields = self._request("GET", "/rest/api/3/field")
+            self._fields = {
+                str(field.get("name")): str(field.get("id"))
+                for field in fields
+                if field.get("name") and field.get("id")
+            }
+            log.info(
+                "jira.fields_discovered",
+                count=len(self._fields),
+                story_points=self._fields.get("Story Points", "absent"),
+            )
+        except Exception as exc:
+            log.warning("jira.field_discovery_failed", error=str(exc))
+            self._fields = {}
+        return self._fields
+
+    def story_points_field(self) -> str | None:
+        """The tenant's Story Points field id, or ``None`` when it does not exist."""
+        return self.field_map().get("Story Points")
 
     # ------------------------------------------------------------------ operations
     def create_project(self, project_key: str, name: str, description: str) -> ToolExecutionResult:
@@ -131,8 +171,19 @@ class JiraConnector:
         if labels:
             fields["labels"] = [label.lower().replace(" ", "-")[:255] for label in labels][:20]
         if story_points is not None:
-            # Custom field id varies per tenant; this is the near-universal default.
-            fields["customfield_10016"] = story_points
+            # Only write the field if this tenant actually has it. Sending an unknown
+            # custom field rejects the entire issue, so an absent Story Points field
+            # must cost the estimate, not the ticket.
+            points_field = self.story_points_field() or self.DEFAULT_STORY_POINTS_FIELD
+            if self.dry_run or points_field in self.field_map().values():
+                fields[points_field] = story_points
+            else:
+                log.info(
+                    "jira.story_points_field_absent",
+                    project=project_key,
+                    detail="this tenant has no 'Story Points' field; the estimate is "
+                    "omitted from the issue rather than rejecting it",
+                )
         if parent_key:
             fields["parent"] = {"key": parent_key}
 

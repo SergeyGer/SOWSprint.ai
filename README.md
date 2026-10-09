@@ -192,10 +192,41 @@ deliberately not a yes-man: it validates the upload and returns a 400 for header
 PCM, which is how a real server behaves — making it a regression test for the capture
 pipeline rather than a rubber stamp.
 
-### 4. AI financial observability
+### 4. Contract revision — targeted edits, not rewrites
+
+A B2B contract is negotiated, not accepted. The revision workflow lets a reviewer change
+what they want and nothing else:
+
+| Command | Effect |
+| :-- | :-- |
+| `/revise make the liability cap mutual` | Changes only the clauses that instruction touches |
+| `/lock 6 7` | Freezes agreed clauses |
+| `/diff` | Shows what moved and what was held |
+| `/clauses` | Lists clauses with their lock state |
+
+At the approval gate, any message that is not `approve`/`reject` is read as a change
+request — the natural moment to negotiate, because the reviewer is looking at the
+contract.
+
+**The lock guarantee is enforced in code, not requested of the model.** After a
+revision returns, every locked clause is restored verbatim from the previous version;
+a locked clause the model dropped is re-inserted. Asking a model to leave agreed text
+alone works most of the time — restoring it in code works every time, and a silently
+altered liability clause is not a defect anyone forgives.
+
+Measured against a deliberately hostile instruction (*"rewrite the entire agreement and
+make the liability unlimited"*) on a 14-clause contract with one clause locked:
+**1 clause modified, 12 unchanged, 1 locked and preserved byte-identical**. A full
+redraft costs ~$0.02–0.07 and loses negotiation history; a revision costs one call.
+
+### 5. AI financial observability
 
 Every LLM call routes through `telemetry/tracker.py`, which prices it against a
-per-million-token book and updates a per-session ledger. The UI renders a **sticky
+per-million-token book and updates a per-session ledger. **Prompt caching** is enabled
+at the provider level: the persona plus JSON schema prefix is marked as an ephemeral
+cache breakpoint, so a repeat call reuses it at a fraction of the input rate. Measured:
+4,071 tokens written on the first call, read back on the second for $0.0042 less, with
+the saving shown on the dashboard as a distinct tile. The UI renders a **sticky
 custom element** (`public/elements/CostDashboard.jsx`) showing live spend, budget
 consumption, token split, call count and a per-agent cost breakdown.
 
@@ -293,9 +324,11 @@ Everything below was executed against this codebase, not asserted.
 | `tests/test_rag_chunking.py` | 31 passed |
 | `tests/test_rag_retrieval.py` | 48 passed |
 | `tests/test_agents_graph.py` | 39 passed |
+| `tests/test_jurisdiction.py` | 27 passed |
+| `tests/test_revision.py` | 18 passed |
 | `tests/test_voice_capture.py` | 21 passed |
 | `tests/test_tools.py` · `test_export.py` · `test_voice.py` · `test_config_models.py` | 105 passed |
-| **Total** | **353 passed** |
+| **Total** | **426 passed** |
 | **Live UI harness** (`scripts/verify_ui.py`) | **12/12 checks passed** |
 | **Live voice harness** (`scripts/verify_voice.py`) | **8/8 checks passed** |
 

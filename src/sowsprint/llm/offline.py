@@ -1156,6 +1156,93 @@ def legal_offline(
     return doc
 
 
+def legal_revision_offline(
+    current_sow: dict[str, Any],
+    instruction: str,
+    scope_payload: dict[str, Any],
+    evidence_block: str,
+    jurisdiction_value: str,
+) -> SOWDocument:
+    """Deterministic revision.
+
+    The offline engine has no way to reason about an arbitrary instruction, so it does
+    the honest thing: it records the request, preserves every locked clause exactly,
+    and appends a numbered revision annex describing what a drafting model would have
+    changed. It never fabricates an edit to a clause the parties did not ask about —
+    which is the failure mode this feature exists to prevent.
+    """
+    document = SOWDocument.model_validate(current_sow)
+    document.revision += 1
+
+    entries = _evidence_index(evidence_block)
+    citation = _cite(entries, ["amendment", "variation", "change"], limit=1)
+
+    next_number = str(_next_clause_number(document))
+    annex = SOWClause(
+        number=next_number,
+        heading=f"Revision Annex {document.revision}",
+        body=(
+            f"The parties requested the following change: \"{instruction.strip()}\". "
+            "This annex records the request. The affected clause has not been "
+            "re-drafted in the offline engine: review it before signature, or configure "
+            "a reasoning provider and re-run the revision. All other clauses, and every "
+            "locked clause in particular, are unchanged."
+        ),
+        citations=citation,
+        jurisdiction_tags=[jurisdiction_value],
+        locked=False,
+    )
+    document.clauses.append(annex)
+    document.compliance_notes = list(
+        dict.fromkeys([*document.compliance_notes, f"Revision {document.revision}: {instruction.strip()}"])
+    )
+    _ = scope_payload  # the scope informs a model; the offline path echoes the request
+    return document
+
+
+def _next_clause_number(document: SOWDocument) -> int:
+    """Highest top-level clause number plus one, tolerating '4.2'-style numbering."""
+    highest = 0
+    for clause in document.clauses:
+        head = str(clause.number).split(".")[0].strip()
+        if head.isdigit():
+            highest = max(highest, int(head))
+    return highest + 1
+
+
+def enforce_lock(
+    previous: SOWDocument, revised: SOWDocument
+) -> tuple[SOWDocument, list[str]]:
+    """Restore every locked clause verbatim from the previous revision.
+
+    Lock enforcement is deterministic on purpose. Asking a model to leave agreed text
+    alone works most of the time; restoring it in code works every time, and a silently
+    altered liability clause is not a defect anyone forgives.
+    """
+    protected = {clause.number: clause for clause in previous.clauses if clause.locked}
+    if not protected:
+        return revised, []
+
+    restored: list[str] = []
+    seen: set[str] = set()
+    for index, clause in enumerate(revised.clauses):
+        original = protected.get(clause.number)
+        if original is None:
+            continue
+        seen.add(clause.number)
+        if clause.body != original.body or clause.heading != original.heading:
+            restored.append(clause.number)
+        revised.clauses[index] = original.model_copy(update={"locked": True})
+
+    # A locked clause the model dropped must come back, at its original position.
+    for number, original in protected.items():
+        if number not in seen:
+            revised.clauses.append(original.model_copy(update={"locked": True}))
+            restored.append(number)
+
+    return revised, restored
+
+
 # --------------------------------------------------------------------------------------
 # Critic
 # --------------------------------------------------------------------------------------

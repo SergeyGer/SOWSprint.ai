@@ -41,7 +41,10 @@ class CostLedger:
         )
         self._started_at = datetime.utcnow()
         self._last_call_at: datetime | None = None
-        self._totals = {"calls": 0, "prompt": 0, "completion": 0, "cost": 0.0, "latency": 0.0}
+        self._totals = {
+            "calls": 0, "prompt": 0, "completion": 0, "cost": 0.0, "latency": 0.0,
+            "cached": 0, "savings": 0.0,
+        }
 
     # ------------------------------------------------------------------ mutation
     def record(self, usage: TokenUsage) -> TokenUsage:
@@ -53,6 +56,8 @@ class CostLedger:
             self._totals["completion"] += usage.completion_tokens
             self._totals["cost"] += usage.cost_usd
             self._totals["latency"] += usage.latency_ms
+            self._totals["cached"] += usage.cached_tokens
+            self._totals["savings"] += usage.cache_savings_usd
 
             node_bucket = self._by_node[usage.node]
             node_bucket["calls"] += 1
@@ -107,6 +112,8 @@ class CostLedger:
                 completion_tokens=int(completion),
                 total_tokens=int(prompt + completion),
                 cost_usd=round(self._totals["cost"], 6),
+                cached_tokens=int(self._totals["cached"]),
+                cache_savings_usd=round(self._totals["savings"], 6),
                 budget_usd=self.budget_usd,
                 by_node={k: dict(v) for k, v in self._by_node.items()},
                 by_model={k: dict(v) for k, v in self._by_model.items()},
@@ -120,7 +127,10 @@ class CostLedger:
             self._entries.clear()
             self._by_node.clear()
             self._by_model.clear()
-            self._totals = {"calls": 0, "prompt": 0, "completion": 0, "cost": 0.0, "latency": 0.0}
+            self._totals = {
+            "calls": 0, "prompt": 0, "completion": 0, "cost": 0.0, "latency": 0.0,
+            "cached": 0, "savings": 0.0,
+        }
             self._last_call_at = None
 
 
@@ -185,6 +195,7 @@ def record_call(
     embeddings and speech-to-text are billed per input token or per minute of audio,
     not per prompt/completion pair.
     """
+    savings = 0.0
     if cost_override_usd is not None:
         cost = float(cost_override_usd)
     else:
@@ -196,6 +207,7 @@ def record_call(
                 cached_tokens,
                 simulate_offline=simulate_offline,
             )
+            savings = lookup(model).cache_savings(cached_tokens)
         except Exception:  # pragma: no cover - telemetry must never break a run
             cost = 0.0
 
@@ -206,6 +218,7 @@ def record_call(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         cached_tokens=cached_tokens,
+        cache_savings_usd=round(savings, 6),
         latency_ms=latency_ms,
         cost_usd=round(cost, 6),
         success=success,

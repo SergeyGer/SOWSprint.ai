@@ -237,6 +237,46 @@ def check_notion(settings, results: Results) -> None:
         results.add("notion", "connect", False, f"{type(exc).__name__}: {exc}")
 
 
+def _warn_if_stale_environment(settings) -> None:
+    """Warn when .env holds newer credentials than the running process.
+
+    ``docker compose exec`` runs inside the *existing* container, which does not
+    re-read .env. Editing a credential and re-running this script therefore tests the
+    OLD value and reports a misleading 401 — which is exactly what happened the first
+    time this was used.
+    """
+    import os
+
+    env_path = Path(__file__).resolve().parents[1] / ".env"
+    if not env_path.is_file():
+        return
+
+    stale: list[str] = []
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip()
+        if not key.startswith("SOWSPRINT_") or not value:
+            continue
+        # Only a *present but different* environment variable indicates a stale
+        # container. An absent one means the process read .env itself (a host run),
+        # which is not staleness.
+        current = os.environ.get(key)
+        if current is not None and current != value:
+            stale.append(key)
+
+    tracked = [k for k in stale if any(t in k for t in ("JIRA", "NOTION", "API_KEY"))]
+    if tracked:
+        print(
+            f"  {WARN} .env differs from this process's environment for: "
+            f"{', '.join(sorted(tracked))}\n"
+            f"      If you just edited .env, this process is testing the OLD values.\n"
+            f"      Recreate the container first:  docker compose up -d --force-recreate\n"
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify Jira and Notion credentials")
     parser.add_argument("--json", action="store_true", help="Emit machine-readable output.")
@@ -249,6 +289,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.json:
         print("SOWSprint.ai — integration pre-flight\n")
+        _warn_if_stale_environment(settings)
         print(f"  dry_run_integrations = {settings.dry_run_integrations}")
         if settings.dry_run_integrations:
             print(

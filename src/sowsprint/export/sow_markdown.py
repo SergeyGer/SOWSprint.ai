@@ -6,7 +6,7 @@ response all derive from it, so the three can never drift apart.
 
 from __future__ import annotations
 
-from ..models import CritiqueReport, SOWDocument, TechnicalBlueprint
+from ..models import CritiqueReport, SOWDiff, SOWDocument, TechnicalBlueprint
 
 
 def render_sow_markdown(sow: SOWDocument) -> str:
@@ -204,3 +204,48 @@ def render_critique_markdown(critique: CritiqueReport) -> str:
 def _escape(text: str) -> str:
     """Escape pipe characters so table cells stay intact."""
     return text.replace("|", "\\|").replace("\n", " ").strip()
+
+
+def render_sow_diff(diff: SOWDiff) -> str:
+    """Render a clause-level revision diff as Markdown."""
+    icons = {
+        "added": "➕",
+        "removed": "➖",
+        "modified": "✏️",
+        "locked": "🔒",
+        "unchanged": "·",
+    }
+    lines = [
+        f"# Revision {diff.from_revision} → {diff.to_revision}",
+        "",
+        f"**{diff.summary()}**",
+        "",
+        "| | Clause | Change |",
+        "| :-- | :-- | :-- |",
+    ]
+    for change in diff.changes:
+        lines.append(
+            f"| {icons.get(change.change, '·')} | {change.number}. {_escape(change.heading)} "
+            f"| {change.change} |"
+        )
+
+    edited = diff.edited
+    if edited:
+        lines += ["", "## Edited clauses", ""]
+        for change in edited:
+            lines += [f"### {change.number}. {change.heading} — *{change.change}*", ""]
+            if change.old_body:
+                lines += ["> **Before**", "> " + change.old_body.replace("\n", "\n> "), ""]
+            if change.new_body:
+                lines += ["> **After**", "> " + change.new_body.replace("\n", "\n> "), ""]
+
+    if diff.preserved:
+        lines += [
+            "## Locked clauses preserved",
+            "",
+            "Returned byte-identical, enforced in code rather than requested of the model:",
+            "",
+        ]
+        lines += [f"- 🔒 {c.number}. {c.heading}" for c in diff.preserved]
+        lines.append("")
+    return "\n".join(lines)
