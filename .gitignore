@@ -35,6 +35,17 @@ htmlcov/
 .env.*
 !.env.example
 
+# Credential files kept beside the code for convenience. These patterns have no
+# leading slash on purpose, so they match at ANY depth: the first version of this
+# file lived in scripts/ and would have been committed by `git add -A`.
+.git-token
+.git-token.*
+*.git-token
+*.pat
+*.token
+.github-token
+credentials.json
+
 # ---------------------------------------------------------------------------
 # Generated artefacts
 # ---------------------------------------------------------------------------
