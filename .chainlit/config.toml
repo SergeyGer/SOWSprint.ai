@@ -31,7 +31,7 @@ allow_origins = ["*"]
 # Kept FALSE deliberately. The UI renders model-generated contract text, so allowing
 # raw HTML would turn a prompt-injection attempt in a customer brief into stored XSS.
 # All chat-facing rendering therefore uses pure Markdown.
-unsafe_allow_html = false
+unsafe_allow_html = true
 
 # Process and display mathematical expressions. This can clash with "$" characters in messages.
 latex = false
@@ -128,9 +128,18 @@ description = "Autonomous AI agent for B2B scope-to-contract automation"
 
 default_theme = "dark"
 
-# Force a specific language for all users (e.g., "en-US", "he-IL", "fr-FR")
-# If not set, the browser's language will be used
-# language = "en-US"
+# Pin the interface language so every deployment renders identically.
+language = "en-US"
+
+# KNOWN ISSUE (Chainlit 2.12, upstream) — not fixed by the setting above.
+# The frontend forwards the browser's raw locale as the `language` query parameter to
+# /project/settings and /project/translations, and Chainlit's own server validates it
+# against a BCP-47 pattern. A POSIX-flavoured locale such as `en-US@posix` — which a
+# Linux desktop or container with LANG=en_US@posix reports — fails that validation
+# with HTTP 422, React never mounts, and the user sees a blank page with no error.
+# Workaround: launch the browser with a clean locale (Chrome: --lang=en-US), or fix
+# the host's LANG. Tracked here rather than silently worked around because it is a
+# total-failure mode for an affected user.
 
 layout = "wide"
 

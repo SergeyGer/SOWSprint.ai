@@ -1,0 +1,57 @@
+name: CodeQL
+
+# Static analysis that reports into the repository's Security → Code scanning tab.
+#
+# Advanced setup (a workflow file) rather than GitHub's default setup, so the queries,
+# the schedule and the Python version are version-controlled alongside the code rather
+# than living in repository settings where no review sees them.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, so a newly published query finds existing code.
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze Python
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+      # Required to upload results to the code scanning API.
+      security-events: write
+      # Required for workflows triggered by pull_request from a fork.
+      actions: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          # security-and-quality is broader than the default security-only suite; it
+          # also flags maintainability defects, which is what we want on a repo that
+          # doubles as a portfolio artefact.
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"

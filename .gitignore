@@ -47,6 +47,16 @@ htmlcov/
 credentials.json
 
 # ---------------------------------------------------------------------------
+# Tooling caches created during development
+# ---------------------------------------------------------------------------
+# Playwright's browser binaries are ~500 MB and are re-downloadable; the pip cache and
+# scratch dir are pure build residue. These appeared when the demo-capture tooling was
+# added and were swept into a commit by `git add -A` — GitHub's 100 MB file limit
+# rejected the push, which is the only reason it was caught.
+.playwright/
+demo/
+
+# ---------------------------------------------------------------------------
 # Generated artefacts
 # ---------------------------------------------------------------------------
 # Rendered SOWs, backlogs and run reports are per-run outputs, not source.

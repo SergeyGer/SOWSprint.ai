@@ -1,3 +1,4 @@
+
 <div align="center">
 
 # SOWSprint.ai
@@ -5,9 +6,21 @@
 **Autonomous multi-agent AI platform that turns chaotic B2B requirements into
 enterprise-grade Statements of Work and instantly deployable project workflows.**
 
+[![CI](https://github.com/SergeyGer/SOWSprint.ai/actions/workflows/ci.yml/badge.svg)](https://github.com/SergeyGer/SOWSprint.ai/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/SergeyGer/SOWSprint.ai/actions/workflows/codeql.yml/badge.svg)](https://github.com/SergeyGer/SOWSprint.ai/actions/workflows/codeql.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](https://www.python.org/downloads/)
+[![Tests](https://img.shields.io/badge/tests-426%20passing-brightgreen.svg)](#verification)
+[![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Docker](https://img.shields.io/badge/docker-compose%20up-2496ED.svg?logo=docker&logoColor=white)](#quick-start)
+
 `LangGraph` · `Chainlit` · `Qdrant` · `Docker` · `Python 3.11`
 
 *Scoping-to-contract lifecycle: **3 days → 5 minutes.***
+
+<img src="docs/images/04-quality-audit.png" alt="An engagement reaching the approval gate, with the agent trace, the quality audit and the planned integration calls" width="820">
+
+<sub>The agent trace, a passing quality audit, and the 27 integration calls planned for approval — from a live run.</sub>
 
 </div>
 
@@ -83,6 +96,48 @@ composer records audio, which is transcribed and fed straight into Triage.
 
 > **If port 8000 is already in use**, set `SOWSPRINT_HOST_PORT` in `.env`. The
 > container-internal port stays 8000; only the host mapping changes.
+
+---
+
+## See it working
+
+<img src="docs/images/demo.gif" alt="A full engagement: brief in, contract out — agent trace, quality audit, dashboard and deliverables" width="820">
+
+<sub>A complete engagement, sped up: brief in → agent trace → quality audit → approval → provisioning → deliverables. Recorded from a real run at <a href="scripts/capture_demo.py">scripts/capture_demo.py</a>.</sub>
+
+### The agent trace and the approval gate
+
+<img src="docs/images/04-quality-audit.png" alt="Agent step trace with a passing quality audit and the planned Jira and Notion calls awaiting approval" width="820">
+
+Nothing touches Jira or Notion until a human approves. The 27 planned calls are listed
+so the reviewer knows exactly what approving means.
+
+### Cost, latency and prompt-cache telemetry
+
+<img src="docs/images/06-dashboard-cost.png" alt="Session cost dashboard showing spend, token split, per-agent cost breakdown and prompt cache savings" width="820">
+
+Every LLM call is priced as it happens: spend against budget, the token split, a
+per-agent cost breakdown, and how much the prompt cache avoided spending. Note
+`CACHE HIT 2.6k −$0.000233` — the static persona and JSON-schema prefix is served from
+cache on repeat calls.
+
+### The quality audit, in detail
+
+<img src="docs/images/05-deliverables.png" alt="Quality audit findings with severity, clause references and reasoning" width="820">
+
+Findings name the clause, the severity and the reasoning — a breach-notification window
+that references runbook clause numbers absent from the SOW, a retention period resting
+on an unconfirmed assumption, a liability carve-out whose scope is ambiguous.
+
+### Mobile, because briefs arrive on phones
+
+<p>
+<img src="docs/images/07-mobile.png" alt="The app on a phone viewport" width="330">
+</p>
+
+Voice capture, the jurisdiction switch and the full transcript all work at 390px wide.
+The stack binds `0.0.0.0`, so a phone on the same Wi-Fi reaches it directly.
+
 
 ---
 
@@ -373,6 +428,30 @@ make verify-ui     # drive the live UI over socket.io
 make verify-voice  # stream PCM through the audio hooks and assert a transcript lands
 make health        # container liveness + readiness (incl. jurisdiction filter probe)
 ```
+
+---
+
+### Verifying what a browser actually renders
+
+`verify_ui.py` drives socket.io and asserts on message payloads. That is useful, but it
+cannot tell whether anything was drawn: the cost dashboard passed every payload check
+while being completely invisible, because the server emitted a Chainlit `CustomElement`
+with correct props and the frontend silently failed to mount it.
+
+`scripts/verify_visual.py` runs a real Chromium and asserts on the DOM instead:
+
+```bash
+docker run --rm --network sowsprint_sowsprint-net \
+  -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+  -v "$PWD/scripts:/scripts:ro" \
+  --entrypoint bash mcr.microsoft.com/playwright/python:v1.49.1-noble \
+  -c "pip install -q playwright==1.49.1; python /scripts/verify_visual.py"
+```
+
+It checks that React mounts, that the composer is interactive, that a full engagement
+reaches the approval gate, that the dashboard markup is in the DOM **with a real layout
+box**, and that no console errors appeared. Running it is what found the missing
+dashboard, and it is the check that would have caught it months earlier.
 
 ---
 

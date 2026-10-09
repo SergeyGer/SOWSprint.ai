@@ -1,0 +1,41 @@
+# Dependabot configuration.
+#
+# Three ecosystems, because a supply-chain problem can arrive through any of them:
+# Python packages, the base image, and the Actions used by the workflows themselves.
+
+version: 2
+
+updates:
+  # ---- Python dependencies -------------------------------------------------
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "python"]
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # One PR for the noise, so a real finding is not buried among twenty patches.
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+
+  # ---- Actions used by the workflows --------------------------------------
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: "chore(ci)"
+
+  # ---- Container base image ------------------------------------------------
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "docker"]
+    commit-message:
+      prefix: "chore(docker)"

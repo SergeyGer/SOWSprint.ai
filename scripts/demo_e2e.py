@@ -87,7 +87,7 @@ def show_events(outcome, since: int = 0) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="SOWSprint.ai end-to-end demonstration")
-    parser.add_argument("--jurisdiction", choices=["EU", "US"], default="EU")
+    parser.add_argument("--jurisdiction", choices=["EU", "US", "BOTH"], default="EU")
     parser.add_argument("--vague", action="store_true", help="Use a deliberately vague brief.")
     parser.add_argument("--us-scenario", action="store_true", help="Use the US sample brief.")
     parser.add_argument("--qdrant", action="store_true", help="Use Qdrant instead of in-memory.")

@@ -95,6 +95,20 @@ class Collector:
 
         return _record
 
+    def dashboard_html(self) -> str:
+        """Raw HTML of the dashboard card as it reached the transcript.
+
+        The dashboard moved from a Chainlit CustomElement to inline HTML because the
+        element never mounted in a real browser. Asserting on the payload alone is what
+        let that regress unnoticed, so these checks now look for the markup itself.
+        """
+        marks = ("sow-cost-dashboard", "Session compute cost")
+        for msg in self.messages:
+            content = msg.get("content") or ""
+            if isinstance(content, str) and all(m in content for m in marks):
+                return content
+        return ""
+
     def has_cost_dashboard(self) -> bool:
         """True when the sticky cost widget was delivered as a custom element."""
         for element in self.elements:
@@ -264,9 +278,9 @@ def main(argv: list[str] | None = None) -> int:
         ("Statement of Work produced", "Statement of Work" in texts),
         ("quality audit reported", "Quality audit" in texts),
         ("compliance retrieval reported", "Jurisdiction filter" in texts),
-        ("sticky cost dashboard delivered as custom element", collector.has_cost_dashboard()),
+        ("cost dashboard rendered into the transcript", bool(collector.dashboard_html())),
         (
-            "dashboard carries live cost telemetry",
+            "dashboard shows a non-zero session cost",
             bool(dashboard_props) and float(dashboard_props.get("costUsd") or 0) > 0,
         ),
         (

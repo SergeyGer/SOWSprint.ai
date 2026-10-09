@@ -17,7 +17,6 @@ import contextlib
 import tempfile
 import uuid
 from collections.abc import Iterator
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +28,6 @@ from sowsprint.config import Settings, get_settings
 from sowsprint.llm import LLMError
 from sowsprint.observability import configure_logging, get_logger
 from sowsprint.rag.pipeline import get_pipeline
-from sowsprint.telemetry import render_dashboard
 from sowsprint.voice import build_audio_file, transcribe_audio
 
 log = get_logger(__name__)
@@ -167,50 +165,31 @@ def _capability_block() -> str:
 
 
 async def _update_dashboard(session: ScopingSession | None) -> None:
-    """Refresh the sticky cost widget, falling back to Markdown if it will not render."""
+    """Refresh the sticky cost dashboard in the transcript.
+
+    Rendered as raw HTML rather than a Chainlit ``CustomElement``. The element route
+    looked correct from the socket payload — which is what the verification harness
+    checked — but never mounted in a real browser: Chainlit 2.12 fetches the ``.jsx``
+    verbatim and nothing in the wheel or the runtime image compiles JSX. Raw HTML is
+    dependent on ``unsafe_allow_html`` and is verifiable from the DOM.
+    """
     report = session.cost_report() if session else None
     if report is None:
         return
 
-    props = {
-        "sessionId": report.session_id,
-        "costUsd": round(report.cost_usd, 6),
-        "budgetUsd": report.budget_usd,
-        "promptTokens": report.prompt_tokens,
-        "completionTokens": report.completion_tokens,
-        "totalTokens": report.total_tokens,
-        "calls": report.calls,
-        "avgLatencyMs": round(report.avg_latency_ms, 1),
-        "cachedTokens": report.cached_tokens,
-        "cacheSavingsUsd": round(report.cache_savings_usd, 6),
-        "budgetUsedPct": round(report.budget_used_pct, 2),
-        "byNode": {k: dict(v) for k, v in report.by_node.items()},
-        "simulated": _settings().offline_mode,
-        "updatedAt": datetime.utcnow().strftime("%H:%M:%S UTC"),
-    }
+    from sowsprint.telemetry.report import render_dashboard_html
+
+    html = render_dashboard_html(report, simulated=_settings().offline_mode)
 
     dashboard = cl.user_session.get("dashboard_msg")
-
-    # Preferred path: the sticky custom element.
-    with contextlib.suppress(Exception):
-        element = cl.CustomElement(name="CostDashboard", props=props, display="inline")
-        if dashboard is None:
-            message = cl.Message(content="", elements=[element])
-            await message.send()
-            cl.user_session.set("dashboard_msg", message)
-        else:
-            dashboard.elements = [element]
-            await dashboard.update()
-        return
-
-    # Fallback: a plain Markdown card, updated in place.
-    content = render_dashboard(report)
     if dashboard is None:
-        message = cl.Message(content=content)
-        await message.send()
-        cl.user_session.set("dashboard_msg", message)
+        dashboard = cl.Message(content=html)
+        cl.user_session.set("dashboard_msg", dashboard)
+        await dashboard.send()
     else:
-        dashboard.content = content
+        # Editing in place keeps the card pinned near the top of the transcript instead
+        # of appending a new one on every step.
+        dashboard.content = html
         await dashboard.update()
 
 
