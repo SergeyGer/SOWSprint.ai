@@ -168,7 +168,8 @@ def main(argv: list[str] | None = None) -> int:
         approved = not args.reject
         print(f"\n  ▶ reviewer decision: {'APPROVE' if approved else 'REJECT'}")
         outcome = session.resume_approval(approved)
-        cursor = show_events(outcome, cursor)
+        # No assignment: this is the last call, so the returned cursor would be unused.
+        show_events(outcome, cursor)
 
     # ---------------------------------------------------------------- results
     banner("Final deliverables")

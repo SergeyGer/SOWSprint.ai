@@ -51,6 +51,34 @@ def remember_temperature_rejection(model: str) -> None:
         _TEMPERATURE_REJECTING.add(needle)
 
 
+def _anthropic_timeout(settings: Settings) -> Any:
+    """A split connect/read timeout built from the class this SDK accepts.
+
+    Anthropic 1.x migrated from ``httpx`` to ``httpx2`` and **rejects the other
+    package's objects** rather than coercing them:
+
+        TypeError: Invalid `timeout` argument; `httpx.Timeout` is from the `httpx`
+        package, but this SDK uses `httpx2`. Use `httpx2.Timeout` instead.
+
+    Which package is correct therefore depends on the installed SDK, and the two are
+    distinguished by what imports. Passing an ``httpx`` timeout to 1.x fails at client
+    construction — a loud failure, but one that only appears on a machine that has
+    upgraded, which is exactly when someone is least inclined to suspect the adapter.
+
+    The split budget itself matters: a single shared timeout makes an unreachable
+    endpoint consume the full read budget on every attempt before the fallback
+    provider is allowed to engage.
+    """
+    timeout_class = httpx.Timeout
+    try:  # anthropic >= 1.0
+        import httpx2
+
+        timeout_class = httpx2.Timeout
+    except ImportError:  # anthropic < 1.0
+        pass
+    return timeout_class(settings.request_timeout_s, connect=settings.connect_timeout_s)
+
+
 class AnthropicClient(BaseLLMClient):
     """Chat client for Anthropic Claude models."""
 
@@ -72,9 +100,7 @@ class AnthropicClient(BaseLLMClient):
             "api_key": self.settings.anthropic_api_key,
             # Split budgets: fail fast on an unreachable endpoint, wait patiently for
             # a long structured completion.
-            "timeout": httpx.Timeout(
-                self.settings.request_timeout_s, connect=self.settings.connect_timeout_s
-            ),
+            "timeout": _anthropic_timeout(self.settings),
             "max_retries": 0,
         }
         if self.settings.anthropic_base_url:

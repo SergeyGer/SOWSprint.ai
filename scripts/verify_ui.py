@@ -226,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
             print("✗ authentication returned no access_token cookie")
             return 1
         socket_headers["Cookie"] = f"access_token={cookie}"
-        print(f"→ authenticated as a machine account (key …{args.api_key[-4:]})")
+        print("→ authenticated as a machine account")
 
     client.connect(
         args.url,

@@ -160,7 +160,8 @@ def serve(port: int, host: str = "0.0.0.0") -> None:
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        pass
+        # Control-C is how this test double is meant to be stopped.
+        print("\n  stopped")
     finally:
         httpd.server_close()
         print("[whisper-stub] stopped")
