@@ -78,11 +78,15 @@ COPY --chown=sowsprint:sowsprint public/ ./public/
 COPY --chown=sowsprint:sowsprint chainlit.md app.py ./
 COPY --chown=sowsprint:sowsprint scripts/ ./scripts/
 COPY --chown=sowsprint:sowsprint pyproject.toml ./
-COPY --chown=sowsprint:sowsprint data/corpus/ ./data/corpus/
-
-# Writable locations for rendered deliverables, cached BM25 statistics and the
-# Chainlit runtime cache.
-RUN mkdir -p /app/data/artifacts /app/.files \
+# Writable locations: rendered deliverables, cached BM25 statistics, the Chainlit
+# runtime cache, and the optional drop-in corpus directory.
+#
+# `data/corpus/` is created rather than copied on purpose. The bundled compliance
+# corpus is embedded in src/sowsprint/rag/corpus_data.py; this path is only a place to
+# drop extra JSON. Git does not track empty directories, so `COPY data/corpus/` passed
+# on a developer machine and failed on a fresh clone with "/data/corpus: not found" —
+# a broken build for everyone who had not happened to create the directory locally.
+RUN mkdir -p /app/data/artifacts /app/data/corpus /app/.files \
  && chown -R sowsprint:sowsprint /app/data /app/.files
 
 USER sowsprint
