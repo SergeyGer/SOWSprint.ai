@@ -191,7 +191,13 @@ class Settings(BaseSettings):
     jira_base_url: str | None = None
     jira_email: str | None = None
     jira_api_token: str | None = None
+    #: Inert. The connector derives a project key from the scope title and never reads
+    #: this; it is documented as unused rather than silently ignored.
     jira_project_key: str | None = None
+    #: Scrum template, which needs Jira Software and project-create rights. Set blank
+    #: to create a template-less project on tenants that lack them, rather than
+    #: failing outright.
+    jira_project_template: str = "com.pyxis.greenhopper.jira:gh-scrum-template"
 
     notion_api_key: str | None = None
     notion_parent_page_id: str | None = None

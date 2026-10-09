@@ -37,6 +37,7 @@ class JiraConnector:
         self.settings = settings or get_settings()
         self._counter = 0
         self._fields: dict[str, str] | None = None
+        self._account_id: str = ""
 
     # ------------------------------------------------------------------ mode
     @property
@@ -100,6 +101,31 @@ class JiraConnector:
             self._fields = {}
         return self._fields
 
+    def account_id(self) -> str:
+        """The authenticated user's Atlassian ``accountId``, resolved once and cached.
+
+        Jira Cloud does not accept an email or username as a project lead. It requires
+        an opaque account id, and omitting it fails project creation with
+
+            400 {"errors": {"projectLead": "You must select an active project lead."}}
+
+        which names a field the request never contained — so the message alone does not
+        lead to the fix. The value is stable for the credential, hence the cache.
+        """
+        if self._account_id:
+            return self._account_id
+        if self.dry_run:
+            self._account_id = "dry-run-account"
+            return self._account_id
+        try:
+            payload = self._request("GET", "/rest/api/3/myself")
+            self._account_id = str(payload.get("accountId") or "")
+            log.info("jira.account_id_resolved", account_id=self._account_id[:12] + "…")
+        except Exception as exc:
+            log.warning("jira.account_id_failed", error=str(exc))
+            self._account_id = ""
+        return self._account_id
+
     def story_points_field(self) -> str | None:
         """The tenant's Story Points field id, or ``None`` when it does not exist."""
         return self.field_map().get("Story Points")
@@ -107,14 +133,22 @@ class JiraConnector:
     # ------------------------------------------------------------------ operations
     def create_project(self, project_key: str, name: str, description: str) -> ToolExecutionResult:
         """Create a Jira project (or simulate it in dry-run mode)."""
-        payload = {
+        payload: dict[str, Any] = {
             "key": project_key.upper()[:10],
             "name": name,
             "description": description[:1000],
             "projectTypeKey": "software",
-            "projectTemplateKey": "com.pyxis.greenhopper.jira:gh-scrum-template",
-            "lead": self.settings.jira_email or "project-lead",
         }
+        # A project lead is mandatory, and the API wants an account id rather than the
+        # email the older Server API accepted.
+        lead = self.account_id()
+        if lead:
+            payload["leadAccountId"] = lead
+        # The Scrum template needs Jira Software and project-create rights. Omitting it
+        # still creates a usable project; the epics and stories are created the same
+        # way either way, so a tenant without the template degrades rather than failing.
+        if self.settings.jira_project_template:
+            payload["projectTemplateKey"] = self.settings.jira_project_template
         if self.dry_run:
             return ToolExecutionResult(
                 tool="create_jira_project_workspace",
