@@ -9,6 +9,8 @@ An autonomous multi-agent platform that reads a messy B2B requirement — a para
 bullet list, a voice note recorded on a phone — and produces an enforceable, jurisdiction-aware
 contract together with the delivery plan to execute it.
 
+[![Try the live demo](https://img.shields.io/badge/▶_try_the_live_demo-ff4b4b?style=for-the-badge)](https://sowsprintai-tr52wy95c3da5fg2ewqwj3.streamlit.app)
+
 [![CI](https://github.com/SergeyGer/SOWSprint.ai/actions/workflows/ci.yml/badge.svg)](https://github.com/SergeyGer/SOWSprint.ai/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/SergeyGer/SOWSprint.ai/actions/workflows/codeql.yml/badge.svg)](https://github.com/SergeyGer/SOWSprint.ai/actions/workflows/codeql.yml)
 [![Tests](https://img.shields.io/badge/tests-483%20passing-brightgreen.svg)](https://github.com/SergeyGer/SOWSprint.ai/wiki/Testing.md)
@@ -219,14 +221,25 @@ configured service and prints the remedy for anything that fails:
 .venv/bin/python scripts/probe_providers.py
 ```
 
-**Try it in a browser, with nothing installed:**
-[`demo/streamlit_app.py`](demo/streamlit_app.py) runs the same pipeline on the
-deterministic engine — no keys, no network, no cost. Deploy it on Streamlit Community
-Cloud by pointing an app at that file path, or run it locally:
+### Try it without installing anything
+
+**[→ Live demo](https://sowsprintai-tr52wy95c3da5fg2ewqwj3.streamlit.app)** — paste a brief
+and get a contract, a backlog and a compliance audit. The deterministic engine drives it,
+so there are no keys, no network calls and no cost, and it cannot break because a trial
+credit expired.
+
+The same thing locally, or as the source for your own Streamlit Community Cloud app
+(main file path `demo/streamlit_app.py`):
 
 ```bash
 pip install -r requirements.txt streamlit
 streamlit run demo/streamlit_app.py
+```
+
+Or the full application, with voice capture and live Jira/Notion provisioning:
+
+```bash
+docker run --rm -p 8000:8000 ghcr.io/sergeyger/sowsprint.ai:latest
 ```
 
 **[Setup guide for VS Code →](docs/vscode.md)** ·
