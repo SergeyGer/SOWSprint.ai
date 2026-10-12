@@ -147,22 +147,38 @@ def _current_account() -> str:
 # scripts never carry a human's credentials.
 
 
-@cl.password_auth_callback
-async def _password_auth(username: str, password: str) -> cl.User | None:
-    account = _authenticator().authenticate_password(username, password)
-    if account is None:
-        # Never echoed into the transcript: a failed login must not confirm whether
-        # the username exists.
-        return None
-    return _authenticator().to_chainlit_user(account)
+# Whether the callbacks are registered is what Chainlit uses to decide if it needs a
+# JWT secret — not whether authentication is *enabled* at runtime. Registering them
+# unconditionally meant `SOWSPRINT_AUTH_ENABLED=false` still aborted startup with
+#
+#     ValueError: You must provide a JWT secret in the environment to use authentication
+#
+# which contradicts the documented way to run an open demo and breaks the promise that
+# the published image runs with no configuration at all. Found by running that image.
+if get_settings().auth_enabled:
 
+    @cl.password_auth_callback
+    async def _password_auth(username: str, password: str) -> cl.User | None:
+        account = _authenticator().authenticate_password(username, password)
+        if account is None:
+            # Never echoed into the transcript: a failed login must not confirm whether
+            # the username exists.
+            return None
+        return _authenticator().to_chainlit_user(account)
 
-@cl.header_auth_callback
-async def _header_auth(headers) -> cl.User | None:
-    account = _authenticator().authenticate_headers(headers)
-    if account is None:
-        return None
-    return _authenticator().to_chainlit_user(account)
+    @cl.header_auth_callback
+    async def _header_auth(headers) -> cl.User | None:
+        account = _authenticator().authenticate_headers(headers)
+        if account is None:
+            return None
+        return _authenticator().to_chainlit_user(account)
+
+else:
+    log.warning(
+        "auth.disabled",
+        detail="SOWSPRINT_AUTH_ENABLED=false — the application is open to anyone who "
+        "can reach the port. Intended for a local demo, never for a shared deployment.",
+    )
 
 
 # --------------------------------------------------------------------------------------

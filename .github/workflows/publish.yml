@@ -1,0 +1,127 @@
+name: Publish image
+
+# Publishes the application image to GitHub Container Registry on every release tag and
+# on demand, so trying the project is a pull rather than a build.
+#
+# The point is the cold start: `git clone && docker compose build` is several minutes and
+# a working Docker install before anything is visible. `docker run ghcr.io/...` is one
+# command, and the README can say so honestly.
+#
+# Not built on every push to main: an image per commit fills the registry with tags
+# nobody pulls. Releases are tagged, and a manual dispatch covers the rest.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Extra tag to publish alongside latest (e.g. edge)"
+        required: false
+        default: "edge"
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write          # required to push to GHCR
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  publish:
+    name: Build and push to GHCR
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      # GITHUB_TOKEN is sufficient for GHCR within the same repository; no PAT needed.
+      - name: Log in to the container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+          labels: |
+            org.opencontainers.image.title=SOWSprint.ai
+            org.opencontainers.image.description=Autonomous multi-agent scoping: a raw B2B requirement becomes an enforceable Statement of Work and a deployable backlog.
+            org.opencontainers.image.licenses=MIT
+
+      # linux/amd64 only: the arm64 build roughly doubles CI time and nobody has asked
+      # for it, and a buildx QEMU emulation failure would be indistinguishable from a
+      # real build failure.
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      # Prove the published artifact runs, rather than trusting that a successful push
+      # means a working image. This is the check that would have caught the
+      # data/corpus build failure before a user did.
+      - name: Verify the published image starts and serves
+        run: |
+          set -euo pipefail
+          image=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+          echo "verifying $image"
+
+          # No API keys, no Qdrant: the offline engine must carry it. If this needs a
+          # credential the image is not actually runnable by a newcomer.
+          docker run -d --name verify \
+            -e SOWSPRINT_LLM_PROVIDER=mock \
+            -e SOWSPRINT_VECTOR_BACKEND=memory \
+            -e SOWSPRINT_AUTH_ENABLED=false \
+            -e SOWSPRINT_DRY_RUN_INTEGRATIONS=true \
+            -p 8000:8000 "$image"
+
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/ >/dev/null 2>&1; then
+              echo "image responded after ${i}0s"
+              curl -fsS http://127.0.0.1:8000/ | head -c 200
+              docker rm -f verify
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "::error::the published image never became reachable"
+          docker logs verify --tail 60
+          docker rm -f verify
+          exit 1
+
+      - name: Report the pull command
+        run: |
+          {
+            echo "### Published"
+            echo
+            echo '```bash'
+            echo "docker run --rm -p 8000:8000 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+            echo '```'
+            echo
+            echo "Runs with no configuration: the deterministic engine drives the whole"
+            echo "pipeline. Add credentials to attach cloud models."
+          } >> "$GITHUB_STEP_SUMMARY"
