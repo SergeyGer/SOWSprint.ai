@@ -60,7 +60,10 @@ jobs:
             --max-concurrency 8
             --timeout 20
             --max-retries 2
-            --accept 200,206,429
+            --accept 200,202,206,429
+            # 202: Atlassian answers 202 on its account-security page — bot mitigation,
+            # not a missing page. Verified by hand before allowing it.
+            # 429: a rate limit is not a dead link.
             --exclude-all-private
             --exclude '^https://github\.com/SergeyGer/SOWSprint\.ai/(actions|security)'
             --exclude 'localhost'
