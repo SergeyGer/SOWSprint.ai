@@ -58,6 +58,14 @@ jobs:
       #   206 — partial content, returned for range requests.
       #   429 — a rate limit is not a dead link.
       #
+      # The Streamlit demo URL is excluded rather than accepted. It cannot be checked by a
+      # link checker at all: it answers 303 to a session-establishment endpoint, which
+      # answers 303 to a login endpoint with a fresh payload, and the cycle never
+      # terminates for a client that does not store cookies — curl gives up after 50
+      # redirects. A browser follows it happily because it keeps the cookie and runs the
+      # JavaScript. liveness of that URL is verified by the live-demo job below, which
+      # drives a real browser, because that is the only thing that can.
+      #
       # NOTE: these comments must stay OUTSIDE the `args:` block. YAML's `>-` folding
       # turns newlines into spaces, so a `#` line inside it is passed to lychee as a
       # literal argument and the whole step fails with a usage error — which is exactly
@@ -75,6 +83,7 @@ jobs:
             --exclude '^https://github\.com/SergeyGer/SOWSprint\.ai/(actions|security)'
             --exclude 'localhost'
             --exclude '127\.0\.0\.1'
+            --exclude '^https://[a-z0-9]+\.streamlit\.app'
             'README.md'
             'CONTRIBUTING.md'
             'docs/**/*.md'
@@ -187,6 +196,31 @@ jobs:
           git add -A
           git commit -m "docs: sync from ${GITHUB_SHA:0:7}"
           git push origin HEAD
+
+  live-demo:
+    name: Live demo responds
+    runs-on: ubuntu-latest
+    # Weekly and on demand, never on a pull request. This checks an external service, and
+    # an outage at Streamlit must not turn an unrelated pull request red.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright
+        run: pip install playwright==1.49.1
+
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
+      # A browser is the only client that can check this URL: Streamlit Community Cloud
+      # establishes a session through a redirect cycle that never terminates for anything
+      # that does not store cookies. See the note above the link-check step.
+      - name: The demo loads and the pipeline runs
+        run: python scripts/check_live_demo.py
 
   spelling:
     name: Spelling
