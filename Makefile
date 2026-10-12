@@ -139,6 +139,21 @@ jira-csv: ## Convert the latest backlog into a Jira-importable CSV
 	$(VENV_PY) scripts/jira_csv.py "$$latest/jira_backlog.csv" --team-managed \
 	  -o "$$latest/jira_backlog-import.csv"
 
+.PHONY: social-preview
+social-preview: ## Re-render the GitHub social preview (1280x640) from its HTML source
+	@docker run --rm -v "$(PWD)/docs/images:/img" \
+	  -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+	  --entrypoint bash mcr.microsoft.com/playwright/python:v1.49.1-noble \
+	  -c "pip install -q playwright==1.49.1 && python -c "\
+from playwright.sync_api import sync_playwright;\
+p=sync_playwright().start();\
+b=p.chromium.launch();\
+g=b.new_page(viewport={'width':1280,'height':640});\
+g.goto('file:///img/social-preview.html');g.wait_for_timeout(1200);\
+g.screenshot(path='/img/social-preview.png',clip={'x':0,'y':0,'width':1280,'height':640});\
+b.close();p.stop()""
+	@echo "  docs/images/social-preview.png rendered — upload it in Settings → Social preview"
+
 .PHONY: env-check
 env-check: ## Report which credentials are missing (never prints values)
 	$(VENV_PY) scripts/setenv.py --show

@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  /* ------------------------------------------------------------------
+     GitHub social preview: 1280x640 (2:1). Rendered headless to PNG.
+
+     Design constraints that shaped this:
+     * GitHub renders it small in feeds — roughly 400px wide on mobile — so the
+       hierarchy has to survive at 1/3 scale. That means three text sizes, not six.
+     * The one fact worth communicating is the transformation (days -> minutes),
+       so it gets the visual weight rather than a feature list.
+     * Colours match the application's own dark theme, so the preview and the
+       product look like the same thing.
+     ------------------------------------------------------------------ */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1280px; height: 640px; overflow: hidden;
+    font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif;
+    background: #0b1220;
+    color: #e2e8f0;
+    position: relative;
+    /* A flex column, so the footer occupies real space and the pipeline above it
+       cannot be covered. The first attempt positioned the footer absolutely and the
+       agent row disappeared underneath it. */
+    display: flex; flex-direction: column;
+  }
+
+  /* Layered background: two soft radial glows over a faint grid. Keeps the large
+     empty areas from looking flat without introducing visual noise. */
+  .grid {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(148,163,184,.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148,163,184,.07) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse 90% 80% at 30% 40%, #000 40%, transparent 100%);
+  }
+  .glow-a {
+    position: absolute; width: 900px; height: 520px; left: -220px; top: -180px;
+    background: radial-gradient(ellipse, rgba(16,185,129,.20), transparent 65%);
+  }
+  .glow-b {
+    position: absolute; width: 820px; height: 520px; right: -240px; bottom: -220px;
+    background: radial-gradient(ellipse, rgba(59,130,246,.18), transparent 65%);
+  }
+
+  .frame {
+    position: relative; z-index: 2;
+    flex: 1; min-height: 0;
+    padding: 52px 72px 0 72px;
+    display: flex; flex-direction: column;
+  }
+
+  /* ---- masthead ---- */
+  .brand { display: flex; align-items: center; gap: 18px; }
+  .mark {
+    width: 54px; height: 54px; border-radius: 14px;
+    background: linear-gradient(140deg, #10b981, #0d9488);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 30px; font-weight: 700; color: #052e1b;
+    box-shadow: 0 8px 26px rgba(16,185,129,.35);
+  }
+  .wordmark { font-size: 40px; font-weight: 700; letter-spacing: -.5px; color: #f8fafc; }
+  .wordmark span { color: #34d399; }
+
+  .kicker {
+    margin-top: 26px;
+    font-size: 27px; line-height: 1.42; color: #94a3b8; max-width: 1000px;
+  }
+  .kicker b { color: #e2e8f0; font-weight: 700; }
+
+  /* ---- the one number that matters ---- */
+  .transform {
+    margin-top: 30px;
+    display: flex; align-items: center; gap: 30px;
+  }
+  .from {
+    font-size: 62px; font-weight: 700; color: #64748b;
+    text-decoration: line-through; text-decoration-color: #ef4444;
+    text-decoration-thickness: 6px;
+  }
+  .arrow { font-size: 46px; color: #475569; }
+  .to {
+    font-size: 76px; font-weight: 700; color: #34d399;
+    letter-spacing: -2px; text-shadow: 0 0 44px rgba(52,211,153,.35);
+  }
+  .transform small {
+    font-size: 22px; color: #64748b; font-weight: 400;
+    display: block; margin-top: 6px; letter-spacing: 0;
+  }
+
+  /* ---- agent pipeline, as a quiet strip ---- */
+  .pipeline {
+    margin-top: auto;
+    display: flex; align-items: center; gap: 0;
+    padding-bottom: 22px;
+  }
+  .agent {
+    display: flex; flex-direction: column; align-items: center; gap: 7px;
+    flex: 1;
+  }
+  .dot {
+    width: 46px; height: 46px; border-radius: 50%;
+    background: rgba(30,41,59,.9);
+    border: 1.5px solid rgba(148,163,184,.32);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 21px;
+  }
+  .agent label { font-size: 13px; color: #64748b; letter-spacing: .04em; }
+  .link { height: 1.5px; width: 26px; background: rgba(148,163,184,.22); margin-bottom: 26px; }
+
+  /* ---- footer strip: the compliance claim ---- */
+  .strip {
+    position: relative; z-index: 2;
+    flex: 0 0 76px;
+    background: rgba(15,23,42,.94);
+    border-top: 1px solid rgba(148,163,184,.16);
+    display: flex; align-items: center; padding: 0 72px; gap: 16px;
+    font-size: 17px; color: #94a3b8; white-space: nowrap;
+  }
+  .pill {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 16px; border-radius: 999px;
+    background: rgba(30,41,59,.85); border: 1px solid rgba(148,163,184,.20);
+  }
+  .pill b { color: #cbd5e1; font-weight: 700; }
+  .spacer { flex: 1; }
+  .metric { text-align: right; }
+  .metric b { color: #34d399; font-weight: 700; }
+  .metric span { color: #64748b; font-size: 15px; }
+</style>
+</head>
+<body>
+  <div class="grid"></div>
+  <div class="glow-a"></div>
+  <div class="glow-b"></div>
+
+  <div class="frame">
+    <div class="brand">
+      <div class="mark">S</div>
+      <div class="wordmark">SOWSprint<span>.ai</span></div>
+    </div>
+
+    <div class="kicker">
+      A messy client brief becomes an <b>enforceable Statement of Work</b><br>
+      and a deployable agile backlog — grounded in the right jurisdiction.
+    </div>
+
+    <div class="transform">
+      <div class="from">3 days</div>
+      <div class="arrow">&#10230;</div>
+      <div>
+        <div class="to">3 minutes</div>
+        <small>multi-agent drafting, compliance audit and provisioning</small>
+      </div>
+    </div>
+
+    <div class="pipeline">
+      <div class="agent"><div class="dot">&#128269;</div><label>triage</label></div>
+      <div class="link"></div>
+      <div class="agent"><div class="dot">&#128208;</div><label>architect</label></div>
+      <div class="link"></div>
+      <div class="agent"><div class="dot">&#9878;&#65039;</div><label>legal</label></div>
+      <div class="link"></div>
+      <div class="agent"><div class="dot">&#128737;&#65039;</div><label>critic</label></div>
+      <div class="link"></div>
+      <div class="agent"><div class="dot">&#9995;</div><label>approval</label></div>
+      <div class="link"></div>
+      <div class="agent"><div class="dot">&#128295;</div><label>tools</label></div>
+      <div class="link"></div>
+      <div class="agent"><div class="dot">&#128230;</div><label>deliver</label></div>
+    </div>
+  </div>
+
+  <div class="strip">
+    <div class="pill">&#127466;&#127482; <b>GDPR</b> · AI Act</div>
+    <div class="pill">&#127482;&#127480; <b>SEC</b> · Delaware · CCPA</div>
+    <div class="pill">&#9878;&#65039; both regimes, one contract</div>
+    <div class="spacer"></div>
+    <div class="metric"><b>483</b> <span>tests</span> &nbsp;·&nbsp; <b>$0.05</b> <span>per engagement</span></div>
+  </div>
+</body>
+</html>
