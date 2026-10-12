@@ -152,4 +152,4 @@ It is also the item that most cleanly demonstrates engineering judgement, becaus
 design starts from the customer's actual objection — *prove nothing left the building* —
 rather than from a feature list.
 
-→ [Roadmap](Roadmap.md) · [Security](Security.md)
+→ [Roadmap](Roadmap) · [Security](Security)

@@ -142,4 +142,4 @@ flowchart TB
 Every one of those was hit and diagnosed during this project's development. The failure
 table exists because the error messages alone do not lead to the fix.
 
-→ [Security](Security.md) · [Testing](Testing.md)
+→ [Security](Security) · [Testing](Testing)

@@ -116,4 +116,4 @@ created in the image.
 | Environment re-neutralised per test | `load_dotenv()` on import otherwise leaks credentials |
 | No importing `app` in unit tests | It pulls in the whole Chainlit runtime and the developer's `.env` |
 
-→ [Quality assurance](Quality-Assurance.md) · [Architecture](Architecture.md)
+→ [Quality assurance](Quality-Assurance) · [Architecture](Architecture)

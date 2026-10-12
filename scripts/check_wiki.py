@@ -83,6 +83,24 @@ def main() -> int:
             + ", ".join(dangling)
         )
 
+    # A wiki-internal link written as `Page.md` is a trap: GitHub rewrites it to /wiki/Page
+    # in the browser, so it looks correct on hover and in the rendered DOM, but the rewrite
+    # is client-side — with JavaScript blocked or not yet run, the browser follows the
+    # original href, /wiki/Page.md answers 302, and the reader lands on raw Markdown.
+    # `[X](Page)` needs no rewrite, so it works either way.
+    bad_md = re.compile(r"\]\([A-Za-z][A-Za-z0-9_-]*\.md(?=[)#])")
+    md_links = [
+        f"{path.name}:{n}"
+        for path in sorted(WIKI.glob("*.md"))
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if bad_md.search(line)
+    ]
+    if md_links:
+        problems.append(
+            "wiki-internal link(s) ending in .md — these depend on a client-side rewrite "
+            "and send readers to raw Markdown without it: " + ", ".join(md_links[:6])
+        )
+
     # A page with no heading is almost always a truncated file.
     for name in sorted(pages):
         body = (WIKI / f"{name}.md").read_text(encoding="utf-8")

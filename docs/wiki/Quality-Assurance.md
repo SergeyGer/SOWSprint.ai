@@ -136,4 +136,4 @@ measure whether the judge finds that defect and nothing else.
 Until that exists, the judge's output should be treated as a strong review aid rather than
 a gate — which is exactly why a human approves before anything is provisioned.
 
-→ [Roadmap](Roadmap.md) · [Testing](Testing.md)
+→ [Roadmap](Roadmap) · [Testing](Testing)

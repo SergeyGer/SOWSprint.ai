@@ -118,4 +118,4 @@ approving. The audit is not a rubber stamp: on this build it caught a breach-not
 window defined by reference to runbook clause numbers that were not part of the contract
 — an unenforceable obligation that would have looked fine to a reader in a hurry.
 
-→ [Who it is for](Who-It-Is-For.md) · [Quality assurance](Quality-Assurance.md) · [Roadmap](Roadmap.md)
+→ [Who it is for](Who-It-Is-For) · [Quality assurance](Quality-Assurance) · [Roadmap](Roadmap)

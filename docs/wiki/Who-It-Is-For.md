@@ -46,7 +46,7 @@ both, with an explicit **stricter-standard rule** for conflicts and a transfer-m
 clause naming actual instruments (SCCs, adequacy, the EU–U.S. Data Privacy Framework).
 Conflicts are resolved by a stated rule rather than by silently picking a side.
 
-→ [Compliance-aware RAG](Compliance-RAG.md)
+→ [Compliance-aware RAG](Compliance-RAG)
 
 ## 4. Procurement and legal operations
 
@@ -122,4 +122,4 @@ It sits **between** the brief and the delivery tooling. It deliberately does not
 a CRM, a CLM or an e-signature provider — those are mature categories with real products,
 and integrating with them is cheaper and better than replacing them.
 
-→ [Business case](Business-Case.md) · [Roadmap](Roadmap.md)
+→ [Business case](Business-Case) · [Roadmap](Roadmap)

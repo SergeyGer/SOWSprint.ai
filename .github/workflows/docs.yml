@@ -58,6 +58,13 @@ jobs:
       #   206 — partial content, returned for range requests.
       #   429 — a rate limit is not a dead link.
       #
+      # docs/wiki/ is excluded from the link check. Its links are wiki links — `[X](Page)`
+      # names a wiki page, not a file on disk — so a file-based checker reports every one
+      # of them as broken. Writing them as `Page.md` to satisfy the checker is worse than
+      # useless: GitHub resolves that form with a client-side rewrite, so with JavaScript
+      # blocked or not yet run the reader is sent to raw Markdown. scripts/check_wiki.py
+      # validates exactly this, by checking that every sidebar target exists as a page.
+      #
       # The Streamlit demo URL is excluded rather than accepted. It cannot be checked by a
       # link checker at all: it answers 303 to a session-establishment endpoint, which
       # answers 303 to a login endpoint with a fresh payload, and the cycle never
@@ -86,7 +93,8 @@ jobs:
             --exclude '^https://[a-z0-9-]+\.streamlit\.app'
             'README.md'
             'CONTRIBUTING.md'
-            'docs/**/*.md'
+            'docs/*.md'
+            'docs/adr/**/*.md'
           fail: true
         env:
           # GitHub rate-limits unauthenticated requests, and a rate-limit response is not

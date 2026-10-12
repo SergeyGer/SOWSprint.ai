@@ -135,4 +135,4 @@ This is the intended path for the German-specific gap the audit surfaced: the EU
 covers GDPR and the AI Act, but not BetrVG works-council consultation, which a German
 engagement requires.
 
-→ [Quality assurance](Quality-Assurance.md) · [Roadmap](Roadmap.md)
+→ [Quality assurance](Quality-Assurance) · [Roadmap](Roadmap)

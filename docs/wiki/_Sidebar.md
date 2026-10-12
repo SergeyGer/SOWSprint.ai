@@ -1,29 +1,29 @@
 ### SOWSprint.ai
 
 **Getting oriented**
-- [Home](Home.md)
-- [Business case](Business-Case.md)
-- [Who it is for](Who-It-Is-For.md)
+- [Home](Home)
+- [Business case](Business-Case)
+- [Who it is for](Who-It-Is-For)
 
 **How it works**
-- [Architecture](Architecture.md)
-- [Agent pipeline](Agent-Pipeline.md)
-- [Compliance-aware RAG](Compliance-RAG.md)
-- [Quality assurance](Quality-Assurance.md)
+- [Architecture](Architecture)
+- [Agent pipeline](Agent-Pipeline)
+- [Compliance-aware RAG](Compliance-RAG)
+- [Quality assurance](Quality-Assurance)
 
 **Running it**
-- [Deployment & operations](Operations.md)
-- [Security & authentication](Security.md)
-- [Integrations](Integrations.md)
-- [Cost & observability](Cost-Observability.md)
+- [Deployment & operations](Operations)
+- [Security & authentication](Security)
+- [Integrations](Integrations)
+- [Cost & observability](Cost-Observability)
 
 **Engineering practice**
-- [Testing & verification](Testing.md)
-- [Architecture decisions](Decisions.md)
+- [Testing & verification](Testing)
+- [Architecture decisions](Decisions)
 
 **Looking ahead**
-- [Roadmap](Roadmap.md)
-- [Corporate LLM & data residency](Corporate-LLM.md)
+- [Roadmap](Roadmap)
+- [Corporate LLM & data residency](Corporate-LLM)
 
 ---
 

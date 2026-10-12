@@ -85,4 +85,4 @@ a backend engineer and a security reviewer need three different first pages. And
 quickstart should be executed in CI on every release, so "it works" is a tested claim rather
 than a maintained hope — the `data/corpus` failure is the argument for this.
 
-→ [Roadmap](Roadmap.md) · [Testing](Testing.md)
+→ [Roadmap](Roadmap) · [Testing](Testing)

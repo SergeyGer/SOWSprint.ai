@@ -117,6 +117,6 @@ Stated because a security page that only lists strengths is not useful:
 | **API keys are not scoped** | A machine account can do anything a human can |
 
 The first two are the ones to fix before any multi-user deployment.
-→ [Roadmap](Roadmap.md)
+→ [Roadmap](Roadmap)
 
-→ [Corporate LLM & data residency](Corporate-LLM.md) · [Operations](Operations.md)
+→ [Corporate LLM & data residency](Corporate-LLM) · [Operations](Operations)
