@@ -82,7 +82,7 @@ This is not a demo mode bolted on afterwards. It is the reason:
 The consequence, stated honestly: the offline auditor is a rule-based checker. Handed a
 contract drafted by a language model it produces false findings, and the platform now
 detects and reports that rather than presenting it as a verdict.
-→ [Quality assurance](Quality-Assurance)
+→ [Quality assurance](Quality-Assurance.md)
 
 ## The graph
 
@@ -156,7 +156,7 @@ input and output is a Pydantic model, so:
 | Choice | Reason | What it costs |
 | :-- | :-- | :-- |
 | **LangGraph** | Cyclic graph with typed state and interruptible human-in-the-loop. A chain cannot express "audit failed, go back". | Framework coupling around state shapes |
-| **Chainlit** | Purpose-built chat UI with native audio capture and custom elements | Its custom-element mechanism turned out not to compile in this container — see [Decisions](Decisions) |
+| **Chainlit** | Purpose-built chat UI with native audio capture and custom elements | Its custom-element mechanism turned out not to compile in this container — see [Decisions](Decisions.md) |
 | **Qdrant** | Named vectors allow dense and sparse in one collection, and filters are applied inside the engine | A second container; an in-memory store mirrors the same filter semantics for tests |
 | **Pydantic v2** | JSON-schema generation for structured output, plus validation at every boundary | Verbose models; worth it for the guarantees |
 | **Docker Compose** | Two containers, one command, identical locally and in CI | Baked images rather than bind mounts, so source edits need a rebuild |
@@ -164,10 +164,10 @@ input and output is a Pydantic model, so:
 ## Deliberate non-goals
 
 - **No database.** Sessions are in-process and checkpointed in memory. Persistence is a
-  roadmap item, not an oversight. → [Roadmap](Roadmap)
+  roadmap item, not an oversight. → [Roadmap](Roadmap.md)
 - **No multi-tenancy.** One deployment serves one organisation. Adding tenancy without
   understanding the compliance boundary would be worse than not having it.
 - **No fine-tuning.** Retrieval and structured output solve the problem; fine-tuning would
   add a training pipeline and a drift surface for no measured gain.
 
-→ [Agent pipeline](Agent-Pipeline) · [Compliance-aware RAG](Compliance-RAG) · [Decisions](Decisions)
+→ [Agent pipeline](Agent-Pipeline.md) · [Compliance-aware RAG](Compliance-RAG.md) · [Decisions](Decisions.md)

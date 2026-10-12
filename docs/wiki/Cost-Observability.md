@@ -115,6 +115,6 @@ When a cloud provider fails and the run degrades to the offline engine, the ledg
 the offline call at simulated rates. The dashboard marks it. A reader can distinguish a
 cheap run from a run that quietly did less work — which matters, because the offline
 auditor is a template matcher, not a real audit.
-→ [Quality assurance](Quality-Assurance)
+→ [Quality assurance](Quality-Assurance.md)
 
-→ [Roadmap](Roadmap) · [Operations](Operations)
+→ [Roadmap](Roadmap.md) · [Operations](Operations.md)

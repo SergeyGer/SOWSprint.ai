@@ -11,7 +11,7 @@ contract together with the delivery plan to execute it.
 
 [![CI](https://github.com/SergeyGer/SOWSprint.ai/actions/workflows/ci.yml/badge.svg)](https://github.com/SergeyGer/SOWSprint.ai/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/SergeyGer/SOWSprint.ai/actions/workflows/codeql.yml/badge.svg)](https://github.com/SergeyGer/SOWSprint.ai/actions/workflows/codeql.yml)
-[![Tests](https://img.shields.io/badge/tests-483%20passing-brightgreen.svg)](https://github.com/SergeyGer/SOWSprint.ai/wiki/Testing)
+[![Tests](https://img.shields.io/badge/tests-483%20passing-brightgreen.svg)](https://github.com/SergeyGer/SOWSprint.ai/wiki/Testing.md)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/SergeyGer/SOWSprint.ai/wiki)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -102,7 +102,7 @@ flowchart TB
     style P3 fill:#065f46,stroke:#10b981,color:#d1fae5
 ```
 
-**[Full business case, including where this is the wrong choice →](https://github.com/SergeyGer/SOWSprint.ai/wiki/Business-Case)**
+**[Full business case, including where this is the wrong choice →](https://github.com/SergeyGer/SOWSprint.ai/wiki/Business-Case.md)**
 
 ---
 
@@ -133,7 +133,7 @@ When both regimes apply, the platform produces **one contract that satisfies bot
 explicit rule for what happens when they conflict — because a contract silent on that point
 is the trap.
 
-**[How the compliance engine works →](https://github.com/SergeyGer/SOWSprint.ai/wiki/Compliance-RAG)**
+**[How the compliance engine works →](https://github.com/SergeyGer/SOWSprint.ai/wiki/Compliance-RAG.md)**
 
 ---
 
@@ -166,7 +166,7 @@ tested. Findings name the clause, the severity and the reasoning — for example
 
 A reader in a hurry would not catch that. The audit did.
 
-**[Quality assurance in depth →](https://github.com/SergeyGer/SOWSprint.ai/wiki/Quality-Assurance)**
+**[Quality assurance in depth →](https://github.com/SergeyGer/SOWSprint.ai/wiki/Quality-Assurance.md)**
 
 ---
 
@@ -220,7 +220,7 @@ configured service and prints the remedy for anything that fails:
 ```
 
 **[Setup guide for VS Code →](docs/vscode.md)** ·
-**[Deployment and operations →](https://github.com/SergeyGer/SOWSprint.ai/wiki/Operations)**
+**[Deployment and operations →](https://github.com/SergeyGer/SOWSprint.ai/wiki/Operations.md)**
 
 ---
 
@@ -241,15 +241,15 @@ Four things took real engineering, and each is documented rather than asserted:
 
 | | |
 | :-- | :-- |
-| **[Business case](https://github.com/SergeyGer/SOWSprint.ai/wiki/Business-Case)** | The economics, and where this is the wrong tool |
-| **[Who it is for](https://github.com/SergeyGer/SOWSprint.ai/wiki/Who-It-Is-For)** | Five buyer profiles, with the honest answer for each |
-| **[Architecture](https://github.com/SergeyGer/SOWSprint.ai/wiki/Architecture)** | System design and the decisions behind it |
-| **[Agent pipeline](https://github.com/SergeyGer/SOWSprint.ai/wiki/Agent-Pipeline)** | What each of the eight stages does |
-| **[Quality assurance](https://github.com/SergeyGer/SOWSprint.ai/wiki/Quality-Assurance)** | How the audit is kept honest |
-| **[Corporate LLM & data residency](https://github.com/SergeyGer/SOWSprint.ai/wiki/Corporate-LLM)** | The on-premise roadmap item that unblocks enterprise adoption |
-| **[Roadmap](https://github.com/SergeyGer/SOWSprint.ai/wiki/Roadmap)** | What is next, and what is deliberately not planned |
-| **[Cost & observability](https://github.com/SergeyGer/SOWSprint.ai/wiki/Cost-Observability)** | Where the money goes |
-| **[Security](https://github.com/SergeyGer/SOWSprint.ai/wiki/Security)** | Threat model, and the gaps |
+| **[Business case](https://github.com/SergeyGer/SOWSprint.ai/wiki/Business-Case.md)** | The economics, and where this is the wrong tool |
+| **[Who it is for](https://github.com/SergeyGer/SOWSprint.ai/wiki/Who-It-Is-For.md)** | Five buyer profiles, with the honest answer for each |
+| **[Architecture](https://github.com/SergeyGer/SOWSprint.ai/wiki/Architecture.md)** | System design and the decisions behind it |
+| **[Agent pipeline](https://github.com/SergeyGer/SOWSprint.ai/wiki/Agent-Pipeline.md)** | What each of the eight stages does |
+| **[Quality assurance](https://github.com/SergeyGer/SOWSprint.ai/wiki/Quality-Assurance.md)** | How the audit is kept honest |
+| **[Corporate LLM & data residency](https://github.com/SergeyGer/SOWSprint.ai/wiki/Corporate-LLM.md)** | The on-premise roadmap item that unblocks enterprise adoption |
+| **[Roadmap](https://github.com/SergeyGer/SOWSprint.ai/wiki/Roadmap.md)** | What is next, and what is deliberately not planned |
+| **[Cost & observability](https://github.com/SergeyGer/SOWSprint.ai/wiki/Cost-Observability.md)** | Where the money goes |
+| **[Security](https://github.com/SergeyGer/SOWSprint.ai/wiki/Security.md)** | Threat model, and the gaps |
 
 ---
 
@@ -267,7 +267,7 @@ people get hurt:
   contract clause language exists. US commercial clauses come from CUAD; EU material is
   GDPR, the AI Act and guidance, from which clauses are authored rather than retrieved.
 - **No TLS, no role separation, in-memory sessions.** Fine for a LAN pilot, not for a shared
-  deployment. → [Security](https://github.com/SergeyGer/SOWSprint.ai/wiki/Security)
+  deployment. → [Security](https://github.com/SergeyGer/SOWSprint.ai/wiki/Security.md)
 
 ---
 

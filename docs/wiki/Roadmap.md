@@ -46,7 +46,7 @@ self-hosted Whisper, reranking and OpenAI-compatible endpoints already work. Wha
 is a deployment profile that **proves** isolation: declared provider policy, fail-closed
 behaviour, and a startup assertion that the resolved configuration makes no cloud call.
 
-→ [Full design](Corporate-LLM)
+→ [Full design](Corporate-LLM.md)
 
 ### 2. Evaluation harness with published results
 Audit quality is currently asserted from experience, not measured. Take sound contracts,
@@ -125,4 +125,4 @@ verifiable**. Features that make the product better without doing either are gen
 lower priority — and a roadmap that says so is more useful than one that lists everything
 as important.
 
-→ [Corporate LLM](Corporate-LLM) · [Decisions](Decisions)
+→ [Corporate LLM](Corporate-LLM.md) · [Decisions](Decisions.md)

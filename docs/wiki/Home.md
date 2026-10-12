@@ -10,11 +10,11 @@ overview.
 
 | If you are… | Start here |
 | :-- | :-- |
-| **Evaluating the product** | [Business case](Business-Case) · [Who it is for](Who-It-Is-For) |
-| **Reviewing the engineering** | [Architecture](Architecture) · [Agent pipeline](Agent-Pipeline) |
-| **Checking the hard parts** | [Compliance-aware RAG](Compliance-RAG) · [Quality assurance](Quality-Assurance) |
-| **Operating it** | [Deployment & operations](Operations) · [Security](Security) |
-| **Planning what comes next** | [Roadmap](Roadmap) · [Corporate LLM](Corporate-LLM) |
+| **Evaluating the product** | [Business case](Business-Case.md) · [Who it is for](Who-It-Is-For.md) |
+| **Reviewing the engineering** | [Architecture](Architecture.md) · [Agent pipeline](Agent-Pipeline.md) |
+| **Checking the hard parts** | [Compliance-aware RAG](Compliance-RAG.md) · [Quality assurance](Quality-Assurance.md) |
+| **Operating it** | [Deployment & operations](Operations.md) · [Security](Security.md) |
+| **Planning what comes next** | [Roadmap](Roadmap.md) · [Corporate LLM](Corporate-LLM.md) |
 
 ---
 
@@ -69,20 +69,20 @@ Four things, each of which took real engineering rather than a prompt:
 1. **Jurisdiction is enforced inside the vector engine, not requested in a prompt.**
    A clause from the wrong regime cannot reach the drafting agent, because the filter is
    applied at query time on both retrieval arms.
-   → [Compliance-aware RAG](Compliance-RAG)
+   → [Compliance-aware RAG](Compliance-RAG.md)
 
 2. **The judge verifies itself.** A claim that a mandatory clause is missing is
    cross-checked against the document before it is trusted. Observed live: a judge
    reported eleven mandatory clauses absent from a contract that contained all of them.
-   → [Quality assurance](Quality-Assurance)
+   → [Quality assurance](Quality-Assurance.md)
 
 3. **A deterministic engine runs the whole pipeline with no credentials.** The test suite
    is credential-free, CI needs no secrets, and the system is demonstrable offline.
-   → [Architecture](Architecture)
+   → [Architecture](Architecture.md)
 
 4. **Nothing touches a customer's systems without a human.** The approval gate lists
    every planned call before it happens.
-   → [Integrations](Integrations)
+   → [Integrations](Integrations.md)
 
 ---
 

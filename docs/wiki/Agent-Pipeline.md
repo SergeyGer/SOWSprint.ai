@@ -79,7 +79,7 @@ retrieved evidence, and the audit checks that cited identifiers are real.
 
 Clause templates differ by regime, and the dual-regime template adds three clauses that
 only exist when EU and US obligations meet.
-→ [Compliance-aware RAG](Compliance-RAG)
+→ [Compliance-aware RAG](Compliance-RAG.md)
 
 ## 🛡️ Critic — the adversarial audit
 
@@ -111,7 +111,7 @@ flowchart TB
 ```
 
 Each step exists because of a specific observed failure. They are documented in
-[Quality assurance](Quality-Assurance), including the one where a judge reported eleven
+[Quality assurance](Quality-Assurance.md), including the one where a judge reported eleven
 mandatory clauses absent from a contract containing all eleven.
 
 ## ✋ Approval — the human gate
@@ -163,6 +163,6 @@ Two things are worth noting from the real numbers rather than the illustration:
   $0.05–0.20 total. It is also the component most worth spending on.
 
 Prompt caching reduces repeat-call input cost by about 90% on the static persona and
-schema prefix. → [Cost & observability](Cost-Observability)
+schema prefix. → [Cost & observability](Cost-Observability.md)
 
-→ [Architecture](Architecture) · [Quality assurance](Quality-Assurance)
+→ [Architecture](Architecture.md) · [Quality assurance](Quality-Assurance.md)

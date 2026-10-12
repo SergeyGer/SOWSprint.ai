@@ -124,4 +124,4 @@ the generated PDF to an issue is a manual step, or a small addition using
 `POST /rest/api/3/issue/{key}/attachments`. Stated plainly rather than left to be
 discovered.
 
-→ [Operations](Operations) · [Roadmap](Roadmap)
+→ [Operations](Operations.md) · [Roadmap](Roadmap.md)

@@ -58,8 +58,11 @@ def main() -> int:
     # Only wiki-internal links name pages. The sidebar footer points at the repository
     # and the README, and treating those as page names produced a false "404" on a
     # sidebar that was perfectly correct.
+    # Both `Page` and `Page.md` are valid in a GitHub wiki, and the repository uses the
+    # explicit form so ordinary link checkers can follow it. Compare on the stem either
+    # way — this check is about reachability, not about link syntax.
     linked = {
-        target.strip()
+        Path(target.strip()).stem
         for target in SIDEBAR_LINK.findall(sidebar_text)
         if not target.strip().startswith(("http://", "https://", "#", "mailto:"))
     }
