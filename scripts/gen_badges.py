@@ -177,16 +177,22 @@ def badge_url(label: str, color: str, logo: str | None) -> str:
     """A shields.io dynamic badge reading its value from docs/badges.json.
 
     ``cacheSeconds`` is set explicitly. Without it shields.io caches for an unspecified
-    period, so a dependency bump would surface at a time nobody could predict; an hour is
-    long enough that the badge is not refetched on every page view and short enough that it
-    tracks a merge the same working day.
+    period, so a dependency bump would surface at a time nobody could predict. Thirty
+    minutes is long enough that the badge is not refetched on every page view and short
+    enough that a merge shows up the same working day.
+
+    The value doubles as a cache key, which matters when ADDING a badge: shields.io
+    remembers the "no result" it returned while the new key was still missing from
+    badges.json, and serves it for the remainder of the window even after the key exists.
+    Changing this number is the fix, and it is worth knowing before spending an hour
+    debugging a badge whose data is already correct.
     """
     url = (
         "https://img.shields.io/badge/dynamic/json"
         f"?url={urllib.parse.quote(RAW_BADGES, safe='')}"
         f"&query={urllib.parse.quote(f'$.{label}', safe='')}"
         f"&label={urllib.parse.quote(label)}&color={color}"
-        f"&style=flat-square&cacheSeconds=3600"
+        f"&style=flat-square&cacheSeconds=1800"
     )
     if logo:
         url += f"&logo={logo}&logoColor=white"
