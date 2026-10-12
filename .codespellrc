@@ -1,0 +1,28 @@
+# Spell check configuration for the documentation.
+#
+# Advisory only in CI: a typo in prose is a nuisance, a failed build over one is worse,
+# because it teaches people to ignore red CI.
+[codespell]
+skip = *.png,*.gif,*.json,*.csv,*.lock,*.pdf,.git,node_modules,.venv,data/artifacts
+quiet-level = 2
+# Domain words the dictionary does not know. Each is deliberate.
+ignore-words-list =
+    sowsprint,
+    qdrant,
+    langgraph,
+    langchain,
+    chainlit,
+    pydantic,
+    reranker,
+    rerank,
+    reranking,
+    scrypt,
+    httpx,
+    ndjson,
+    uvicorn,
+    dotenv,
+    structlog,
+    cls,
+    fo,
+    ot,
+    ba

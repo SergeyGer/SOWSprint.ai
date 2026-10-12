@@ -1,0 +1,155 @@
+name: Docs
+
+# Keeps the documentation from going stale, which is the default outcome for
+# documentation that nothing checks.
+#
+# Three separate concerns, because they fail in different ways:
+#
+#   * a broken asset reference is invisible to the author — the file exists on their
+#     machine, and a link checker sees a valid relative path;
+#   * a dead external URL is invisible until a reader clicks it, possibly months later;
+#   * a wiki page that drifts from the code is invisible until someone trusts it.
+
+on:
+  push:
+    branches: [main]
+    paths: ["**.md", "docs/**", ".github/workflows/docs.yml", "scripts/check_docs.py"]
+  pull_request:
+    branches: [main]
+    paths: ["**.md", "docs/**", ".github/workflows/docs.yml", "scripts/check_docs.py"]
+  schedule:
+    # Weekly: external links rot without anyone touching the repository, so the check
+    # has to run when nothing changed.
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  references:
+    name: Asset references
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # No dependencies: the checker is stdlib plus git, which keeps this job fast enough
+      # that nobody is tempted to skip it.
+      - name: Every referenced asset exists and is tracked
+        run: python scripts/check_docs.py --fix-suggestions
+
+  links:
+    name: External links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress
+            --max-concurrency 8
+            --timeout 20
+            --max-retries 2
+            --accept 200,206,429
+            --exclude-all-private
+            --exclude '^https://github\.com/SergeyGer/SOWSprint\.ai/(actions|security)'
+            --exclude 'localhost'
+            --exclude '127\.0\.0\.1'
+            'README.md'
+            'CONTRIBUTING.md'
+            'docs/**/*.md'
+          fail: true
+        env:
+          # GitHub rate-limits unauthenticated requests, and a rate-limit response is not
+          # a dead link. The token lifts the limit so the job reports real breakage.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  wiki-check:
+    name: Wiki navigation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # Catches the two silent failures: a page nothing links to, and a link to a page
+      # that no longer exists.
+      - name: Sidebar matches the pages
+        run: python scripts/check_wiki.py
+
+  wiki-publish:
+    name: Publish wiki
+    runs-on: ubuntu-latest
+    needs: [references, wiki-check]
+    # Only from main. A pull request must be able to change the wiki without publishing it.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # The wiki is a separate git repository, which is why its content is mirrored into
+      # docs/wiki/ here: edits arrive through a reviewed pull request, and this job copies
+      # the merged result across. Direct edits to the wiki are still possible but are
+      # overwritten on the next merge, which is the intended incentive.
+      - name: Push docs/wiki to the GitHub wiki
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ ! -d docs/wiki ]; then
+            echo "docs/wiki does not exist; nothing to publish"
+            exit 0
+          fi
+
+          git config --global user.name  "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git clone --depth 1 \
+            "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git" \
+            /tmp/wiki || {
+              echo "::warning::the wiki repository is empty or does not exist yet."
+              echo "Create one page in the web UI once, then this job takes over."
+              exit 0
+            }
+
+          # Mirror exactly: a page deleted here must disappear there, not linger.
+          find /tmp/wiki -maxdepth 1 -name '*.md' -delete
+          cp docs/wiki/*.md /tmp/wiki/
+
+          cd /tmp/wiki
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "wiki already up to date"
+            exit 0
+          fi
+          git add -A
+          git commit -m "docs: sync from ${GITHUB_SHA:0:7}"
+          git push origin HEAD
+
+  spelling:
+    name: Spelling
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Advisory only. A typo in prose is a nuisance; a failed build over one is worse,
+      # because it trains people to ignore red CI.
+      - name: Spell check
+        continue-on-error: true
+        uses: codespell-project/actions-codespell@v2
+        with:
+          path: "README.md CONTRIBUTING.md docs"
+          ignore_words_file: .codespellrc
+          skip: "*.png,*.gif,*.json,*.csv"
