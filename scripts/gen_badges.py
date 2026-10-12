@@ -1,23 +1,29 @@
 #!/usr/bin/env python
-"""Generate docs/badges.json, the data behind the README's technology badges.
+"""Generate docs/badges.json and the README's technology badge block.
 
 Why this indirection
 --------------------
 A badge with a version typed into it is a claim that decays. `LangGraph 0.2` stays on the
-README long after the dependency moved, and nothing fails — the badge just becomes wrong.
-Readers have no way to tell a current badge from a stale one, which is the same problem the
-rest of this repository's documentation checks exist to prevent.
+README long after the dependency moved, and nothing fails — the badge simply becomes wrong,
+and a reader has no way to tell a current badge from a stale one.
 
-So the badges are read from the files that actually govern the versions: ``requirements.txt``
-for the libraries, the CI matrix for Python, the Dockerfile for the base image. Shields.io
-fetches the generated JSON over `dynamic/json`, which means the README shows what the
-repository declares, and a dependency bump updates the badge with no edit to the README.
+So the values are read from the files that actually govern the versions, and the README
+block is generated from the same table that maps each technology to its wiki page. One
+table, so a new badge cannot be added to the README without a destination, and a renamed
+wiki page breaks the build rather than leaving a dead link.
 
-Regenerate after changing a dependency::
+Sources:
+
+* ``requirements.txt``      — runtime libraries
+* ``requirements-dev.txt``  — development tooling
+* the CI matrix             — the Python versions actually tested
+* the Dockerfile            — the Python version actually shipped
+
+Regenerate after changing any of them::
 
     python scripts/gen_badges.py
 
-``--check`` fails when the file is out of date, which is what runs in CI.
+``--check`` fails when either output is stale, which is what runs in CI.
 """
 
 from __future__ import annotations
@@ -26,31 +32,61 @@ import argparse
 import json
 import re
 import sys
+import urllib.parse
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "badges.json"
+README = ROOT / "README.md"
 
-#: Badge label -> distribution name in requirements.txt.
-#:
-#: Only the core stack: a badge row that lists every transitive dependency communicates
-#: nothing. These are the choices a reader evaluating the project would want to see.
-TRACKED: dict[str, str] = {
-    "LangGraph": "langgraph",
-    "Chainlit": "chainlit",
-    "Qdrant": "qdrant-client",
-    "OpenAI": "openai",
-    "Anthropic": "anthropic",
-    "Pydantic": "pydantic",
-    "ReportLab": "reportlab",
-    "Structlog": "structlog",
-}
+WIKI_BASE = "https://github.com/SergeyGer/SOWSprint.ai/wiki"
+RAW_BADGES = "https://raw.githubusercontent.com/SergeyGer/SOWSprint.ai/main/docs/badges.json"
+
+#: Fence markers around the generated block, so the README can carry hand-written prose
+#: on either side without the generator guessing where its output ends.
+BEGIN = "<!-- BEGIN GENERATED BADGES — edit scripts/gen_badges.py, not this block -->"
+END = "<!-- END GENERATED BADGES -->"
+
+
+@dataclass(frozen=True)
+class Tech:
+    """One technology badge.
+
+    The wiki page is not decoration. A version tells a reader what is used; the link tells
+    them what it is used *for* here, which is the question a badge usually provokes and
+    almost never answers.
+    """
+
+    label: str
+    distribution: str
+    color: str
+    wiki: str
+    logo: str | None = None
+    source: str = "requirements.txt"
+
+
+TECH: tuple[Tech, ...] = (
+    # Language and runtime first, then orchestration, interface, storage, providers, then
+    # the tooling that keeps it honest. Left to right is roughly the shape of the system.
+    Tech("Python", "python", "3776AB", "Testing", logo="python", source="ci-matrix"),
+    Tech("Docker", "python", "2496ED", "Operations", logo="docker", source="dockerfile"),
+    Tech("LangGraph", "langgraph", "1C3C3C", "Agent-Pipeline"),
+    Tech("Chainlit", "chainlit", "F80061", "Architecture"),
+    Tech("Qdrant", "qdrant-client", "DC244C", "Compliance-RAG"),
+    Tech("OpenAI", "openai", "412991", "Cost-Observability", logo="openai"),
+    Tech("Anthropic", "anthropic", "D97757", "Cost-Observability", logo="anthropic"),
+    Tech("Pydantic", "pydantic", "E92063", "Architecture", logo="pydantic"),
+    Tech("Ruff", "ruff", "D7FF64", "Testing", source="requirements-dev.txt"),
+)
 
 REQUIREMENT_RE = re.compile(r"^(?P<name>[A-Za-z0-9._-]+)\s*(?P<spec>[<>=!~][^;#\s]*)?\s*$")
 
 
 def parse_requirements(path: Path) -> dict[str, str]:
     """Map distribution name -> version specifier, ignoring comments and blanks."""
+    if not path.is_file():
+        return {}
     found: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.split("#", 1)[0].strip()
@@ -65,16 +101,15 @@ def parse_requirements(path: Path) -> dict[str, str]:
 def candidate_bounds(spec: str) -> str:
     """Render a specifier set as the range a reader cares about.
 
-    ``>=0.2.60,<1.3`` becomes ``0.2.60 – 1.3``: the floor that is supported and the ceiling
-    that is not. The comparison operators are noise in a badge, and the two numbers are the
-    whole message.
+    ``>=0.2.60,<1.3`` becomes ``0.2.60–1.3``: the floor that is supported and the ceiling
+    that is not. The comparison operators are noise in a badge, and those two numbers are
+    the whole message.
     """
+    exact = re.search(r"==\s*([0-9][0-9A-Za-z.\-]*)", spec)
+    if exact:
+        return exact.group(1)
     floor = re.search(r">=\s*([0-9][0-9A-Za-z.\-]*)", spec)
     ceiling = re.search(r"<\s*([0-9][0-9A-Za-z.\-]*)", spec)
-    match_floor = re.search(r"==\s*([0-9][0-9A-Za-z.\-]*)", spec)
-
-    if match_floor:
-        return match_floor.group(1)
     if floor and ceiling:
         return f"{floor.group(1)}\u2013{ceiling.group(1)}"
     if floor:
@@ -88,8 +123,8 @@ def python_versions() -> str:
     """Read the CI matrix rather than restating it.
 
     The versions a project *claims* to support and the versions it *tests* diverge quietly.
-    A badge that states the tested set is the more useful claim, and it is also the one
-    that cannot drift, because it is read from the workflow that runs.
+    The tested set is the more useful claim, and it cannot drift, because it is read from
+    the workflow that runs it.
     """
     workflow = ROOT / ".github" / "workflows" / "ci.yml"
     if not workflow.is_file():
@@ -97,8 +132,7 @@ def python_versions() -> str:
     match = re.search(r'python-version:\s*\[([^\]]+)\]', workflow.read_text(encoding="utf-8"))
     if not match:
         return "unknown"
-    versions = [v.strip().strip('"\'') for v in match.group(1).split(",") if v.strip()]
-    return " | ".join(versions)
+    return " | ".join(v.strip().strip("\"'") for v in match.group(1).split(",") if v.strip())
 
 
 def docker_version() -> str:
@@ -106,48 +140,139 @@ def docker_version() -> str:
     dockerfile = ROOT / "Dockerfile"
     if not dockerfile.is_file():
         return "unknown"
-    match = re.search(r"^FROM\s+python:([0-9.]+)-slim", dockerfile.read_text(encoding="utf-8"), re.M)
+    match = re.search(
+        r"^FROM\s+python:([0-9.]+)-slim", dockerfile.read_text(encoding="utf-8"), re.M
+    )
     return match.group(1) if match else "unknown"
 
 
+def value_for(tech: Tech, sources: dict[str, dict[str, str]]) -> str:
+    if tech.source == "ci-matrix":
+        return python_versions()
+    if tech.source == "dockerfile":
+        return docker_version()
+    spec = sources.get(tech.source, {}).get(tech.distribution)
+    if spec is None:
+        return "unknown"
+    return candidate_bounds(spec)
+
+
 def build() -> dict[str, str]:
-    requirements = parse_requirements(ROOT / "requirements.txt")
-    data = {"Python": python_versions(), "Docker": docker_version()}
-    for label, distribution in TRACKED.items():
-        spec = requirements.get(distribution)
-        if spec is None:
-            print(f"  ! {distribution} is not in requirements.txt; skipping {label}", file=sys.stderr)
+    sources = {
+        "requirements.txt": parse_requirements(ROOT / "requirements.txt"),
+        "requirements-dev.txt": parse_requirements(ROOT / "requirements-dev.txt"),
+    }
+    data: dict[str, str] = {}
+    for tech in TECH:
+        value = value_for(tech, sources)
+        if value == "unknown":
+            print(f"  ! {tech.distribution} not found in {tech.source}; skipping {tech.label}",
+                  file=sys.stderr)
             continue
-        data[label] = candidate_bounds(spec)
+        data[tech.label] = value
     return data
 
 
+def badge_url(label: str, color: str, logo: str | None) -> str:
+    """A shields.io dynamic badge reading its value from docs/badges.json.
+
+    ``cacheSeconds`` is set explicitly. Without it shields.io caches for an unspecified
+    period, so a dependency bump would surface at a time nobody could predict; an hour is
+    long enough that the badge is not refetched on every page view and short enough that it
+    tracks a merge the same working day.
+    """
+    url = (
+        "https://img.shields.io/badge/dynamic/json"
+        f"?url={urllib.parse.quote(RAW_BADGES, safe='')}"
+        f"&query={urllib.parse.quote(f'$.{label}', safe='')}"
+        f"&label={urllib.parse.quote(label)}&color={color}"
+        f"&style=flat-square&cacheSeconds=3600"
+    )
+    if logo:
+        url += f"&logo={logo}&logoColor=white"
+    return url
+
+
+def render_block(data: dict[str, str]) -> str:
+    badges = " ".join(
+        f"[![{tech.label}]({badge_url(tech.label, tech.color, tech.logo)})]"
+        f"({WIKI_BASE}/{tech.wiki})"
+        for tech in TECH
+        if tech.label in data
+    )
+    return (
+        f"{BEGIN}\n"
+        "**Core stack** — each version is read from the file that governs it "
+        "(`requirements.txt`, `requirements-dev.txt`, the CI matrix, the Dockerfile), so the "
+        "badges cannot drift from what the repository declares. Follow one to see what the "
+        "technology is used for here.\n\n"
+        f"{badges}\n"
+        f"{END}"
+    )
+
+
+def check_json(data: dict[str, str]) -> int:
+    rendered = json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    if not OUT.is_file():
+        print(f"✗ {OUT.relative_to(ROOT)} does not exist; run scripts/gen_badges.py", file=sys.stderr)
+        return 1
+    if OUT.read_text(encoding="utf-8") != rendered:
+        print(f"✗ {OUT.relative_to(ROOT)} is out of date", file=sys.stderr)
+        current = json.loads(OUT.read_text(encoding="utf-8"))
+        for key in sorted(set(current) | set(data)):
+            if current.get(key) != data.get(key):
+                print(f"    {key}: {current.get(key)!r} -> {data.get(key)!r}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def check_readme(data: dict[str, str]) -> int:
+    text = README.read_text(encoding="utf-8")
+    if BEGIN not in text or END not in text:
+        print("✗ README.md is missing the generated badge block markers", file=sys.stderr)
+        return 1
+    actual = text.split(BEGIN, 1)[1].split(END, 1)[0]
+    expected = render_block(data).split(BEGIN, 1)[1].split(END, 1)[0]
+    if actual != expected:
+        print("✗ the README badge block is out of date", file=sys.stderr)
+        print("  Run: python scripts/gen_badges.py", file=sys.stderr)
+        for line in expected.splitlines():
+            if line not in actual.splitlines():
+                print(f"    missing: {line[:110]}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--check", action="store_true", help="Fail if the file is out of date.")
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--check", action="store_true", help="Fail if either output is stale.")
     args = parser.parse_args(argv)
 
     data = build()
-    rendered = json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    block = render_block(data)
 
     if args.check:
-        if not OUT.is_file():
-            print(f"✗ {OUT.relative_to(ROOT)} does not exist; run scripts/gen_badges.py", file=sys.stderr)
+        failed = check_json(data) | check_readme(data)
+        if failed:
             return 1
-        if OUT.read_text(encoding="utf-8") != rendered:
-            print(f"✗ {OUT.relative_to(ROOT)} is out of date", file=sys.stderr)
-            current = json.loads(OUT.read_text(encoding="utf-8"))
-            for key in sorted(set(current) | set(data)):
-                if current.get(key) != data.get(key):
-                    print(f"    {key}: {current.get(key)!r} -> {data.get(key)!r}", file=sys.stderr)
-            print("  Run: python scripts/gen_badges.py", file=sys.stderr)
-            return 1
-        print(f"  ✅ {len(data)} badge value(s) match the dependency files")
+        print(f"  ✅ {len(data)} badge value(s) and the README block match their sources")
         return 0
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(rendered, encoding="utf-8")
-    print(f"  wrote {OUT.relative_to(ROOT)}")
+    OUT.write_text(json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+                   encoding="utf-8")
+
+    text = README.read_text(encoding="utf-8")
+    if BEGIN in text and END in text:
+        before = text.split(BEGIN, 1)[0]
+        after = text.split(END, 1)[1]
+        README.write_text(before + block + after, encoding="utf-8")
+        readme_note = "README block replaced"
+    else:
+        readme_note = "README block not found — markers missing, left untouched"
+
+    print(f"  wrote {OUT.relative_to(ROOT)} ({readme_note})")
     for key, value in sorted(data.items()):
         print(f"    {key:12} {value}")
     return 0
