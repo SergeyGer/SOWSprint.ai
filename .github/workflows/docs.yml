@@ -52,6 +52,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Accepted status codes, and why each non-200 is allowed:
+      #   202 — Atlassian answers 202 on its account-security page. Bot mitigation, not a
+      #         missing page; the URL was opened by hand before allowing the code.
+      #   206 — partial content, returned for range requests.
+      #   429 — a rate limit is not a dead link.
+      #
+      # NOTE: these comments must stay OUTSIDE the `args:` block. YAML's `>-` folding
+      # turns newlines into spaces, so a `#` line inside it is passed to lychee as a
+      # literal argument and the whole step fails with a usage error — which is exactly
+      # what happened when this was first written.
       - name: Check links
         uses: lycheeverse/lychee-action@v2
         with:
@@ -61,9 +71,6 @@ jobs:
             --timeout 20
             --max-retries 2
             --accept 200,202,206,429
-            # 202: Atlassian answers 202 on its account-security page — bot mitigation,
-            # not a missing page. Verified by hand before allowing it.
-            # 429: a rate limit is not a dead link.
             --exclude-all-private
             --exclude '^https://github\.com/SergeyGer/SOWSprint\.ai/(actions|security)'
             --exclude 'localhost'
