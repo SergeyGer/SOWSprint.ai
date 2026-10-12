@@ -46,6 +46,14 @@ jobs:
       - name: Every referenced asset exists and is tracked
         run: python scripts/check_docs.py --fix-suggestions
 
+      # The README's technology badges read their values from docs/badges.json, which is
+      # generated from requirements.txt, the CI matrix and the Dockerfile. Without this
+      # check a dependency bump would leave the README advertising the old version, and
+      # nothing would fail — the badge would simply become a claim that had stopped being
+      # true.
+      - name: README badges match the dependency files
+        run: python scripts/gen_badges.py --check
+
   links:
     name: External links
     runs-on: ubuntu-latest
