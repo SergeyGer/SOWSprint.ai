@@ -120,6 +120,31 @@ def schema_hint(schema: type[BaseModel] | None) -> str:
     )
 
 
+def explain(exc: BaseException) -> str:
+    """The exception together with its root cause, when the cause says something new.
+
+    SDKs wrap transport failures, and the wrapper is accurate but useless: every network
+    problem, every malformed timeout and every TLS failure arrives as the same
+    ``APIConnectionError: Connection error.`` The actual reason sits one or two frames
+    down, and without it the only available conclusion is "the network is down" — which
+    was wrong, and cost a debugging session, when a mis-typed timeout object was the
+    cause.
+
+    Depth-limited and cycle-guarded: exception chains in the wild are neither short nor
+    guaranteed acyclic.
+    """
+    parts = [f"{type(exc).__name__}: {exc}"]
+    seen = {id(exc)}
+    cause = exc.__cause__ or exc.__context__
+    while cause is not None and id(cause) not in seen and len(parts) < 4:
+        seen.add(id(cause))
+        text = f"{type(cause).__name__}: {cause}"
+        if text not in parts:
+            parts.append(text)
+        cause = cause.__cause__ or cause.__context__
+    return "  <-  ".join(parts)
+
+
 class BaseLLMClient(ABC):
     """Common behaviour shared by every provider adapter, including the offline engine."""
 

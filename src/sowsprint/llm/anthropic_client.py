@@ -12,7 +12,6 @@ import threading
 from collections.abc import Sequence
 from typing import Any, ClassVar
 
-import httpx
 from anthropic import Anthropic
 
 from ..config import Settings
@@ -52,31 +51,27 @@ def remember_temperature_rejection(model: str) -> None:
 
 
 def _anthropic_timeout(settings: Settings) -> Any:
-    """A split connect/read timeout built from the class this SDK accepts.
+    """A split connect/read timeout, built from the class this SDK re-exports.
 
-    Anthropic 1.x migrated from ``httpx`` to ``httpx2`` and **rejects the other
-    package's objects** rather than coercing them:
+    Anthropic 1.x moved from ``httpx`` to ``httpx2`` and rejects the other package's
+    objects outright. The first version of this function decided which to use by asking
+    whether ``httpx2`` could be imported — which is wrong, because ``httpx2`` being
+    installed says nothing about which SDK is installed. In this environment ``langsmith``
+    depends on it, so the probe always succeeded, always selected ``httpx2.Timeout``, and
+    handed it to an anthropic 0.x client that could not read it.
 
-        TypeError: Invalid `timeout` argument; `httpx.Timeout` is from the `httpx`
-        package, but this SDK uses `httpx2`. Use `httpx2.Timeout` instead.
+    The failure was also well disguised: the ``TypeError`` from three frames down surfaced
+    as ``APIConnectionError: Connection error.``, so the log said the network was down
+    while the network was fine and the probe passed. See ``explain()`` in ``llm/base.py``.
 
-    Which package is correct therefore depends on the installed SDK, and the two are
-    distinguished by what imports. Passing an ``httpx`` timeout to 1.x fails at client
-    construction — a loud failure, but one that only appears on a machine that has
-    upgraded, which is exactly when someone is least inclined to suspect the adapter.
-
-    The split budget itself matters: a single shared timeout makes an unreachable
-    endpoint consume the full read budget on every attempt before the fallback
-    provider is allowed to engage.
+    ``anthropic.Timeout`` is re-exported by both 0.x and 1.x and is by definition the class
+    that SDK accepts, so there is nothing to detect.
     """
-    timeout_class = httpx.Timeout
-    try:  # anthropic >= 1.0
-        import httpx2
+    import anthropic
 
-        timeout_class = httpx2.Timeout
-    except ImportError:  # anthropic < 1.0
-        pass
-    return timeout_class(settings.request_timeout_s, connect=settings.connect_timeout_s)
+    return anthropic.Timeout(
+        settings.request_timeout_s, connect=settings.connect_timeout_s
+    )
 
 
 class AnthropicClient(BaseLLMClient):

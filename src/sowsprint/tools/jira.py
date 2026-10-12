@@ -25,6 +25,41 @@ from .types import ToolExecutionResult
 log = get_logger(__name__)
 
 
+class JiraRequestError(RuntimeError):
+    """A Jira call that failed, described in Jira's own words.
+
+    ``raise_for_status`` produces ``Client error '400 Bad Request' for url ...``, which
+    names the status and nothing else. Jira puts the reason in the response body, and that
+    body is the difference between "the integration is broken" and "this project key is
+    held by a project in the trash — pick another or purge it".
+
+    The first live run of this integration failed 22 calls in a row and every log line said
+    only ``400 Bad Request``. The information needed to fix it in a minute was sitting in
+    the response the whole time.
+    """
+
+    def __init__(self, method: str, path: str, response: Any) -> None:
+        self.status = response.status_code
+        self.detail = _explain_response(response)
+        super().__init__(f"{method} {path} -> HTTP {self.status}: {self.detail}")
+
+
+def _explain_response(response: Any) -> str:
+    """Pull the human-readable reason out of a Jira error body."""
+    try:
+        body = response.json()
+    except Exception:
+        return (response.text or "").strip()[:400] or "(empty body)"
+
+    parts = [str(m) for m in (body.get("errorMessages") or []) if m]
+    parts += [f"{field}: {message}" for field, message in (body.get("errors") or {}).items()]
+    if not parts:
+        # Some endpoints report a bare message and some report nothing at all.
+        single = body.get("message")
+        parts = [str(single)] if single else [str(body)[:400]]
+    return "; ".join(parts)
+
+
 class JiraConnector:
     """Thin, dependency-light Jira Cloud client."""
 
@@ -61,12 +96,14 @@ class JiraConnector:
         import httpx
 
         base = (self.settings.jira_base_url or "").rstrip("/")
+        # `path` may carry a query string; joining keeps it intact.
         url = f"{base}{path}"
         with httpx.Client(timeout=self.settings.request_timeout_s) as client:
             response = client.request(
                 method, url, headers=self._auth_header(), json=payload
             )
-            response.raise_for_status()
+            if response.status_code >= 400:
+                raise JiraRequestError(method, path, response)
             if not response.content:
                 return {"status": response.status_code}
             return response.json()
@@ -173,12 +210,34 @@ class JiraConnector:
             )
         except Exception as exc:
             log.warning("jira.create_project_failed", key=payload["key"], error=str(exc))
+
+            # A key or name already taken is not a failure to provision — it is an
+            # instruction to provision into what is already there. A second engagement for
+            # the same client, or a re-run after a partial failure, must land in the same
+            # project rather than stopping the whole pipeline at its first write.
+            existing = self.find_project(payload["key"])
+            if existing:
+                log.info(
+                    "jira.project_reused",
+                    key=payload["key"],
+                    project_id=existing.get("id"),
+                )
+                return ToolExecutionResult(
+                    tool="create_jira_project_workspace",
+                    ok=True,
+                    dry_run=False,
+                    request=payload,
+                    response={**existing, "reused": True},
+                    resource_key=str(existing.get("key", payload["key"])),
+                    resource_url=f"{self.settings.jira_base_url}/projects/{existing.get('key', '')}",
+                )
+
             return ToolExecutionResult(
                 tool="create_jira_project_workspace",
                 ok=False,
                 dry_run=False,
                 request=payload,
-                error=f"{type(exc).__name__}: {exc}",
+                error=f"{type(exc).__name__}: {exc}{self._key_held_by_trash_hint(payload['key'])}",
             )
 
     def create_issue(
@@ -290,6 +349,51 @@ class JiraConnector:
             )
 
     # ------------------------------------------------------------------ tool handlers
+    def find_project(self, project_key: str) -> dict[str, Any] | None:
+        """The live project with this key, or None.
+
+        Only live projects count. A key held by a project in the trash cannot be reused —
+        Jira keeps the key reserved and refuses to create over it — so returning the
+        trashed project here would turn a clear failure into a confusing one.
+        """
+        if self.dry_run:
+            return None
+        try:
+            found = self._request(
+                "GET",
+                "/rest/api/3/project/search",
+                None,
+            )
+        except Exception:
+            return None
+        for project in found.get("values", []) if isinstance(found, dict) else []:
+            if str(project.get("key", "")).upper() == project_key.upper():
+                return project
+        return None
+
+    def _key_held_by_trash_hint(self, project_key: str) -> str:
+        """Explain a taken key that no visible project owns.
+
+        This is worth spelling out because the state is invisible in the Jira UI's project
+        list: deleting a project moves it to the trash, the key stays reserved, and every
+        later create fails with 'this key is already in use' while the list shows nothing
+        with that key.
+        """
+        try:
+            trashed = self._request(
+                "GET", "/rest/api/3/project/search?status=deleted&maxResults=100"
+            )
+        except Exception:
+            return ""
+        for project in trashed.get("values", []) if isinstance(trashed, dict) else []:
+            if str(project.get("key", "")).upper() == project_key.upper():
+                return (
+                    f" — the key is held by a deleted project ({project.get('name')!r}) in the"
+                    " Jira trash. Purge it in Jira (Project settings → Delete → permanently)"
+                    " or set SOWSPRINT_JIRA_PROJECT_KEY to a free key."
+                )
+        return ""
+
     def create_project_tool(self, arguments: dict[str, Any]) -> ToolExecutionResult:
         return self.create_project(
             project_key=str(arguments.get("project_key", "SOW")),
