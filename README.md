@@ -219,6 +219,16 @@ configured service and prints the remedy for anything that fails:
 .venv/bin/python scripts/probe_providers.py
 ```
 
+**Try it in a browser, with nothing installed:**
+[`demo/streamlit_app.py`](demo/streamlit_app.py) runs the same pipeline on the
+deterministic engine — no keys, no network, no cost. Deploy it on Streamlit Community
+Cloud by pointing an app at that file path, or run it locally:
+
+```bash
+pip install -r requirements.txt streamlit
+streamlit run demo/streamlit_app.py
+```
+
 **[Setup guide for VS Code →](docs/vscode.md)** ·
 **[Deployment and operations →](https://github.com/SergeyGer/SOWSprint.ai/wiki/Operations.md)**
 

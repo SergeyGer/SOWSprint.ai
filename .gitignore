@@ -54,7 +54,11 @@ credentials.json
 # added and were swept into a commit by `git add -A` — GitHub's 100 MB file limit
 # rejected the push, which is the only reason it was caught.
 .playwright/
-demo/
+# NOTE: `demo/` is deliberately NOT ignored. It was, briefly, as scratch space
+# for the screenshot tooling — and that silently excluded the deployable Streamlit
+# demo from the repository, so it existed on one machine only and every
+# instruction pointing at it was wrong. Ignore scratch files individually, not a
+# directory that holds a deliverable.
 
 # ---------------------------------------------------------------------------
 # Generated artefacts

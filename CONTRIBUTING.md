@@ -20,7 +20,9 @@ runs identically on a laptop, in CI and inside the container, and a revoked API 
 turn the build red. Please keep it that way: a test that needs a key will be rejected.
 
 Running the application and its services is covered in
-[**docs/vscode.md**](docs/vscode.md).
+[**docs/vscode.md**](docs/vscode.md). There is also a zero-install demo in
+[`demo/streamlit_app.py`](demo/streamlit_app.py) that runs the offline engine in a
+browser — useful for reviewing a change without setting anything up.
 
 ---
 
