@@ -51,6 +51,14 @@ FENCE_RE = re.compile(r"^```.*?^```", re.S | re.M)
 
 SKIP_PREFIXES = ("http://", "https://", "mailto:", "#", "tel:")
 
+#: A github.com wiki URL ending in ``.md`` looks like a link to the page and is not one.
+#: GitHub treats ``wiki/Page.md`` as a request for the raw file and 302s the reader to
+#: unrendered Markdown. Inside the wiki itself the same syntax is fine — GitHub normalises
+#: it — so the rule applies only to absolute URLs written outside the wiki. This was a real
+#: regression: 15 README links were changed to the .md form for consistency with the
+#: sidebar, and every one of them started sending readers to raw text.
+WIKI_MD_URL = re.compile(r"https://github\.com/[^/\s]+/[^/\s]+/wiki/[^)\s]+\.md")
+
 
 def tracked_files() -> set[str]:
     """Repository-relative paths git tracks. Untracked files do not ship."""
@@ -97,7 +105,19 @@ def check(fix_suggestions: bool) -> int:
             targets += [m.group(1) for m in HTML_RE.finditer(line)]
             for raw in targets:
                 target = raw.strip()
-                if not target or target.startswith(SKIP_PREFIXES):
+                if not target:
+                    continue
+
+                # Checked before the scheme skip below, because this IS an http URL and
+                # would otherwise pass straight through.
+                if WIKI_MD_URL.match(target):
+                    problems.append(
+                        (rel, lineno, target, "wiki URL with .md sends the reader to raw text")
+                    )
+                    checked += 1
+                    continue
+
+                if target.startswith(SKIP_PREFIXES):
                     continue
                 checked += 1
 
