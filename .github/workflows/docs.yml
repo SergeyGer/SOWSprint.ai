@@ -83,7 +83,7 @@ jobs:
             --exclude '^https://github\.com/SergeyGer/SOWSprint\.ai/(actions|security)'
             --exclude 'localhost'
             --exclude '127\.0\.0\.1'
-            --exclude '^https://[a-z0-9]+\.streamlit\.app'
+            --exclude '^https://[a-z0-9-]+\.streamlit\.app'
             'README.md'
             'CONTRIBUTING.md'
             'docs/**/*.md'
