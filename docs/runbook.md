@@ -61,7 +61,7 @@ statistics from the stored payloads rather than re-embedding.
 To do it explicitly:
 
 ```bash
-make corpus-stats             # 69 entries → 141 chunks (70 EU / 71 US)
+make corpus-stats             # 501 entries → 615 chunks (70 EU / 545 US)
 make ingest                   # index into the configured backend
 make reingest                 # drop and rebuild from scratch
 ```
@@ -204,7 +204,7 @@ docker compose exec sowsprint-app python scripts/healthcheck.py --deep
 | `readiness: vector store empty or unreachable` | Qdrant not reachable | `docker compose logs sowsprint-qdrant`; confirm `SOWSPRINT_QDRANT_URL` |
 | `readiness: jurisdiction filter is not discriminating` | Both regimes returned the same chunk | Corpus not filtered on ingest — check that every entry has `jurisdiction` of `EU`/`US` |
 | `liveness: http 000` | Chainlit has not finished starting | Wait out the 90 s start period; check for a port conflict |
-| Container restarts in a loop | OOM during ingestion | Raise the memory limit; the hash embedder over 141 chunks is light, OpenAI embeddings are batched |
+| Container restarts in a loop | OOM during ingestion | Raise the memory limit; the hash embedder over 615 chunks is light, OpenAI embeddings are batched |
 
 ### `Error: address already in use` on startup
 

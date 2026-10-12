@@ -50,7 +50,7 @@ Verify:
 
 ```bash
 .venv/bin/python -c "import sowsprint; print(sowsprint.__file__)"
-.venv/bin/python -m pytest tests -o addopts= -q      # 461 tests, ~20 s, no credentials needed
+.venv/bin/python -m pytest tests -o addopts= -q      # 483 tests, ~20 s, no credentials needed
 ```
 
 The suite is deliberately credential-free: every subsystem falls back to a local
@@ -76,8 +76,8 @@ Then load the corpus:
 
 ```bash
 .venv/bin/python -m sowsprint.rag.ingest
-# corpus entries : 69
-# chunks         : 141   (EU 70 / US 71)
+# corpus entries : 501   (69 bundled + 432 CUAD / Pile of Law)
+# chunks         : 615   (EU 70 / US 545)
 ```
 
 > If you would rather not run Docker at all, set `SOWSPRINT_VECTOR_BACKEND=memory` in
@@ -152,7 +152,7 @@ failure does not stop the rest.
   ✅ transcription   [899 ms]
        provider=openai accepted a 1 s silent WAV
   ✅ qdrant          [101 ms]
-       collection 'sowsprint_legal' holds 141 vectors
+       collection 'sowsprint_legal' holds 615 vectors
   ✅ retrieval       [1512 ms]
        3 passage(s), regimes=['EU'], best=f64d3a28c051 (EU)
   ✅ jira            [182 ms]
