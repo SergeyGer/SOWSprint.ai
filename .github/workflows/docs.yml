@@ -84,6 +84,31 @@ jobs:
           # a dead link. The token lifts the limit so the job reports real breakage.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  diagrams:
+    name: Diagrams current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright
+        run: pip install playwright==1.49.1
+
+      # Only Chromium: the renderer drives a headless browser because Mermaid is a
+      # JavaScript library. There is no equivalent pure-Python implementation.
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
+      # GitHub renders Mermaid in repository Markdown but NOT in wikis, where a ```mermaid
+      # block appears as literal source text. The committed PNGs are what the wiki shows,
+      # so a diagram edited without re-rendering would leave the wiki displaying the old
+      # picture — and nothing would say so.
+      - name: Rendered images match their sources
+        run: python scripts/render_diagrams.py --check
+
   wiki-check:
     name: Wiki navigation
     runs-on: ubuntu-latest
@@ -102,7 +127,7 @@ jobs:
   wiki-publish:
     name: Publish wiki
     runs-on: ubuntu-latest
-    needs: [references, wiki-check]
+    needs: [references, wiki-check, diagrams]
     # Only from main. A pull request must be able to change the wiki without publishing it.
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     permissions:
@@ -110,10 +135,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
       # The wiki is a separate git repository, which is why its content is mirrored into
       # docs/wiki/ here: edits arrive through a reviewed pull request, and this job copies
       # the merged result across. Direct edits to the wiki are still possible but are
       # overwritten on the next merge, which is the intended incentive.
+      #
+      # What gets uploaded is the WIKIFIED copy: Mermaid blocks replaced by references to
+      # the rendered PNGs, because the wiki cannot draw a Mermaid diagram. No browser is
+      # needed here — the images are already committed and verified by the diagrams job.
+      - name: Prepare wiki pages
+        run: python scripts/render_diagrams.py --wikify-only
       - name: Push docs/wiki to the GitHub wiki
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -123,6 +158,7 @@ jobs:
             echo "docs/wiki does not exist; nothing to publish"
             exit 0
           fi
+          test -d build/wiki
 
           git config --global user.name  "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -137,7 +173,11 @@ jobs:
 
           # Mirror exactly: a page deleted here must disappear there, not linger.
           find /tmp/wiki -maxdepth 1 -name '*.md' -delete
-          cp docs/wiki/*.md /tmp/wiki/
+          if [ ! -d build/wiki ]; then
+            echo "::error::build/wiki was not produced; run --wikify-only first"
+            exit 1
+          fi
+          cp build/wiki/*.md /tmp/wiki/
 
           cd /tmp/wiki
           if git diff --quiet && git diff --cached --quiet; then
