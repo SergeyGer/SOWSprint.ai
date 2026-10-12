@@ -40,7 +40,6 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "badges.json"
 README = ROOT / "README.md"
 
-WIKI_BASE = "https://github.com/SergeyGer/SOWSprint.ai/wiki"
 RAW_BADGES = "https://raw.githubusercontent.com/SergeyGer/SOWSprint.ai/main/docs/badges.json"
 
 #: Fence markers around the generated block, so the README can carry hand-written prose
@@ -53,15 +52,20 @@ END = "<!-- END GENERATED BADGES -->"
 class Tech:
     """One technology badge.
 
-    The wiki page is not decoration. A version tells a reader what is used; the link tells
-    them what it is used *for* here, which is the question a badge usually provokes and
-    almost never answers.
+    ``docs`` is the project's own documentation, not this repository's wiki. That is the
+    convention for a technology badge: a CI or coverage badge correctly points inward, at
+    the run it reports, but a badge naming a third-party tool points at that tool. A reader
+    clicking "LangGraph 1.2" wants to know what LangGraph is, and the vendor's own docs
+    answer that better than a page of our opinions about it ever could.
+
+    The internal context — why we chose it, what it does here — belongs in the wiki, and
+    README links to that separately. Mixing the two made every badge a detour.
     """
 
     label: str
     distribution: str
     color: str
-    wiki: str
+    docs: str
     logo: str | None = None
     source: str = "requirements.txt"
 
@@ -69,15 +73,21 @@ class Tech:
 TECH: tuple[Tech, ...] = (
     # Language and runtime first, then orchestration, interface, storage, providers, then
     # the tooling that keeps it honest. Left to right is roughly the shape of the system.
-    Tech("Python", "python", "3776AB", "Testing", logo="python", source="ci-matrix"),
-    Tech("Docker", "python", "2496ED", "Operations", logo="docker", source="dockerfile"),
-    Tech("LangGraph", "langgraph", "1C3C3C", "Agent-Pipeline"),
-    Tech("Chainlit", "chainlit", "F80061", "Architecture"),
-    Tech("Qdrant", "qdrant-client", "DC244C", "Compliance-RAG"),
-    Tech("OpenAI", "openai", "412991", "Cost-Observability", logo="openai"),
-    Tech("Anthropic", "anthropic", "D97757", "Cost-Observability", logo="anthropic"),
-    Tech("Pydantic", "pydantic", "E92063", "Architecture", logo="pydantic"),
-    Tech("Ruff", "ruff", "D7FF64", "Testing", source="requirements-dev.txt"),
+    #
+    # Every URL here is checked by the README link check, so a documentation site that
+    # moves breaks the build rather than leaving a badge that leads nowhere.
+    Tech("Python", "python", "3776AB", "https://docs.python.org/3/",
+         logo="python", source="ci-matrix"),
+    Tech("Docker", "python", "2496ED", "https://docs.docker.com/",
+         logo="docker", source="dockerfile"),
+    Tech("LangGraph", "langgraph", "1C3C3C", "https://langchain-ai.github.io/langgraph/"),
+    Tech("Chainlit", "chainlit", "F80061", "https://docs.chainlit.io/"),
+    Tech("Qdrant", "qdrant-client", "DC244C", "https://qdrant.tech/documentation/"),
+    Tech("OpenAI", "openai", "412991", "https://platform.openai.com/docs/", logo="openai"),
+    Tech("Anthropic", "anthropic", "D97757", "https://docs.anthropic.com/", logo="anthropic"),
+    Tech("Pydantic", "pydantic", "E92063", "https://docs.pydantic.dev/", logo="pydantic"),
+    Tech("Ruff", "ruff", "D7FF64", "https://docs.astral.sh/ruff/",
+         source="requirements-dev.txt"),
 )
 
 REQUIREMENT_RE = re.compile(r"^(?P<name>[A-Za-z0-9._-]+)\s*(?P<spec>[<>=!~][^;#\s]*)?\s*$")
@@ -201,8 +211,7 @@ def badge_url(label: str, color: str, logo: str | None) -> str:
 
 def render_block(data: dict[str, str]) -> str:
     badges = " ".join(
-        f"[![{tech.label}]({badge_url(tech.label, tech.color, tech.logo)})]"
-        f"({WIKI_BASE}/{tech.wiki})"
+        f"[![{tech.label}]({badge_url(tech.label, tech.color, tech.logo)})]({tech.docs})"
         for tech in TECH
         if tech.label in data
     )
@@ -210,8 +219,9 @@ def render_block(data: dict[str, str]) -> str:
         f"{BEGIN}\n"
         "**Core stack** — each version is read from the file that governs it "
         "(`requirements.txt`, `requirements-dev.txt`, the CI matrix, the Dockerfile), so the "
-        "badges cannot drift from what the repository declares. Follow one to see what the "
-        "technology is used for here.\n\n"
+        "badges cannot drift from what the repository declares. Each links to the "
+        "technology's own documentation; for why these were chosen and what they do here, "
+        "see the [wiki](https://github.com/SergeyGer/SOWSprint.ai/wiki/Architecture).\n\n"
         f"{badges}\n"
         f"{END}"
     )
