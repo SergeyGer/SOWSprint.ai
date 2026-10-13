@@ -586,16 +586,25 @@ class AgentNodes:
                 report.dismissed = contradicted
                 log.warning("critic.missing_clause_contradicted", notes=contradicted)
 
-        # The verdict AND the score are both recomputed once anything was dismissed.
-        # Recomputing only the verdict left the judge's score standing — a score it
-        # assigned while believing eleven mandatory clauses were absent — so the run
-        # failed on `0.00 >= 0.72` for defects that had just been proven not to exist.
-        # The UI could also report "FAILED" beside a findings list containing nothing
-        # blocking, which is incoherent on its face.
+        # Recompute the score from the findings that survived, ALWAYS — not only when
+        # something was dismissed.
+        #
+        # The judge's score is a holistic judgement made before calibration and before
+        # contradiction checks, so it is not reproducible from the finding list a reader
+        # sees. That produced two numbers for one set of findings: a run reporting 0.78
+        # beside "1 high, 3 medium, 2 low" when the documented formula gives 0.50. Both
+        # said FAILED, so nothing was broken yet — but a score that cannot be reconstructed
+        # from its own findings cannot be argued with, tuned, or trusted, and the moment
+        # someone moves a threshold the two definitions disagree about the outcome.
+        #
+        # The judge's own number is kept in `raw_quality_score` rather than discarded: the
+        # gap between the two is worth seeing, and hiding it would trade one unexplained
+        # number for a missing one.
+        report.raw_quality_score = original_score
+        report.quality_score = score_from_findings(report)
+        report.passed = not report.blocking_findings and report.quality_score >= 0.72
+
         if len(report.findings) != original_findings:
-            report.raw_quality_score = original_score
-            report.quality_score = score_from_findings(report)
-            report.passed = not report.blocking_findings and report.quality_score >= 0.72
             log.info(
                 "critic.verdict_recomputed",
                 node="critic",
@@ -608,12 +617,21 @@ class AgentNodes:
                 passed=report.passed,
             )
         elif len(report.blocking_findings) != original_blocking:
-            report.passed = not report.blocking_findings and report.quality_score >= 0.72
             log.info(
                 "critic.severity_calibrated",
                 node="critic",
                 before=original_blocking,
                 after=len(report.blocking_findings),
+                passed=report.passed,
+            )
+        else:
+            log.info(
+                "critic.score_derived_from_findings",
+                node="critic",
+                judge_score=original_score,
+                derived_score=report.quality_score,
+                findings=len(report.findings),
+                blocking=len(report.blocking_findings),
                 passed=report.passed,
             )
 

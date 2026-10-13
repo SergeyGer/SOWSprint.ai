@@ -614,6 +614,109 @@ class TestStateContract:
         assert 1 <= MAX_CLARIFICATION_ROUNDS <= 5
 
 
+class TestTheScoreIsAlwaysDerivedFromTheFindings:
+    """The reported score must be reconstructible from the findings beside it.
+
+    Regression guard for a real inconsistency observed on a live run: the audit reported
+    0.78 next to "1 high, 3 medium, 2 low", while the documented formula gives 0.50. The
+    recomputation ran only when findings were dismissed, so a judge that was simply
+    generous kept its number and the two definitions of quality disagreed.
+
+    Both agreed on FAILED that time, which is why it went unnoticed. A score nobody can
+    reconstruct from its own findings cannot be argued with or tuned, and the disagreement
+    becomes a wrong verdict the moment a threshold moves.
+    """
+
+    class _GenerousJudge:
+        """Returns a flattering holistic score beside findings that do not support it.
+
+        Injects on every critic call, not just the first. The repair loop runs the audit
+        again after Legal redrafts, so injecting once leaves the final report coming from
+        the real judge and the assertions measuring something other than the scripted case.
+        """
+
+        def __init__(self, inner) -> None:
+            self.inner = inner
+            self.seen = 0
+
+        def complete(self, messages, *, schema=None, **kwargs):
+            response = self.inner.complete(messages, schema=schema, **kwargs)
+            if schema is CritiqueReport:
+                self.seen += 1
+                if True:
+                    response.parsed = CritiqueReport(
+                        passed=True,                     # the judge is content
+                        quality_score=0.95,              # ...and says so
+                        grounding_ratio=1.0,
+                        hallucination_score=0.0,
+                        summary="Looks broadly fine to me.",
+                        findings=[
+                            CriticFinding(
+                                category=FindingCategory.SCOPE_DRIFT,
+                                severity=Severity.HIGH,
+                                location="16.7",
+                                description="Clause 16.7 cross-references the wrong clause.",
+                                remediation="Point it at Clause 18.",
+                            ),
+                            CriticFinding(
+                                category=FindingCategory.COMMERCIAL_RISK,
+                                severity=Severity.MEDIUM,
+                                location="7.2",
+                                description="The payment schedule is also called an assumption.",
+                                remediation="Make one of the two statements definitive.",
+                            ),
+                            CriticFinding(
+                                category=FindingCategory.AMBIGUITY,
+                                severity=Severity.LOW,
+                                location="9.1",
+                                description="DPA execution is not stated as a precondition.",
+                                remediation="Say that it is.",
+                            ),
+                        ],
+                        repair_instructions=["Fix the Clause 16.7 cross-reference."],
+                        attempt=0,
+                    )
+            return response
+
+    def test_the_reported_score_matches_the_formula(
+        self, session_id: str, settings: Settings, full_pipeline: RagPipeline, detailed_brief: str
+    ) -> None:
+        from sowsprint.models import score_from_findings
+
+        tracker.drop_ledger(session_id)
+        session = ScopingSession(session_id, settings=settings, pipeline=full_pipeline)
+        session.nodes.critic_client = self._GenerousJudge(session.nodes.critic_client)
+
+        outcome = session.start(detailed_brief, jurisdiction="EU", auto_deploy=False)
+
+        assert outcome.critique is not None
+        report = outcome.critique
+
+        assert report.quality_score == score_from_findings(report), (
+            "the reported score is not derivable from the findings reported with it"
+        )
+        assert report.quality_score < 0.95, (
+            "the judge's holistic score survived calibration and contradiction checks"
+        )
+        assert report.raw_quality_score == 0.95, (
+            "the judge's own number must be retained, not discarded"
+        )
+        assert report.passed is False, "a blocking finding must fail the bar regardless of score"
+
+    def test_a_generous_judge_cannot_pass_a_contract_with_a_blocking_finding(
+        self, session_id: str, settings: Settings, full_pipeline: RagPipeline, detailed_brief: str
+    ) -> None:
+        tracker.drop_ledger(session_id)
+        session = ScopingSession(session_id, settings=settings, pipeline=full_pipeline)
+        session.nodes.critic_client = self._GenerousJudge(session.nodes.critic_client)
+
+        outcome = session.start(detailed_brief, jurisdiction="EU", auto_deploy=False)
+
+        assert outcome.critique is not None
+        assert outcome.critique.findings, "the scripted findings must survive to the report"
+        assert outcome.critique.passed is False
+
+
 class TestCriticRoutingInTheRealApplication:
     """The Critic must reach its configured provider through ScopingSession.
 
