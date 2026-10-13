@@ -94,4 +94,87 @@ def plan_tool_calls(
         plan.summary = f"{plan.summary} ({dropped} unknown tool call(s) discarded)".strip()
 
     plan.calls = valid_calls
+    _stamp_schedule(plan, blueprint, client.settings.resolved_project_start)
     return plan
+
+
+def _stamp_schedule(plan: ToolCallPlan, blueprint: dict[str, Any], start: Any) -> None:
+    """Write the milestone dates onto every issue, overriding whatever was planned.
+
+    Dates are arithmetic, and arithmetic is the thing a language model gets subtly wrong
+    while sounding entirely certain. Asked to schedule a twelve-week engagement from a
+    given Monday, a live model produced `2025-01-01` — wrong by more than a year, and
+    entirely plausible on a timeline.
+
+    So the model decides the structure (which epics, which stories, how they nest) and
+    this decides when. Milestone windows are computed once from the start date and matched
+    to each call by the `[Milestone]` prefix the plan format already uses; a call the model
+    mislabels keeps whatever it proposed rather than being given a date that belongs to
+    something else.
+    """
+    from datetime import timedelta
+
+    milestones = (blueprint or {}).get("milestones") or []
+    if not milestones or start is None:
+        return
+
+    windows: dict[str, tuple[str, str]] = {}
+    epic_milestone: dict[str, str] = {}
+    cursor = start
+    for milestone in milestones:
+        name = str(milestone.get("name") or "")
+        if not name:
+            continue
+        weeks = max(1, int(milestone.get("duration_weeks") or 1))
+        windows[name] = (
+            cursor.isoformat(),
+            (cursor + timedelta(weeks=weeks) - timedelta(days=1)).isoformat(),
+        )
+        cursor = cursor + timedelta(weeks=weeks)
+        # The blueprint states which milestone owns which epic, and `client_ref` is
+        # required to carry the epic's key — so this link is guaranteed by the plan format.
+        # Matching on the "[Milestone] Name" summary prefix is not: it is a convention of
+        # the offline planner, and a live model given no such instruction titles its epics
+        # however it likes, which left every issue undated.
+        for epic in milestone.get("epics") or []:
+            key = str((epic or {}).get("key") or "")
+            if key:
+                epic_milestone[key] = name
+
+    if not windows:
+        return
+
+    # Two passes. Epics first, by the key the plan already promises in `client_ref`.
+    # Stories then inherit from the epic they name in `parent_key`, so a story can never
+    # be scheduled outside its own epic's window.
+    epic_window: dict[str, tuple[str, str]] = {}
+    stamped = 0
+    for call in plan.calls:
+        if call.tool != "create_jira_issue":
+            continue
+        reference = str(call.arguments.get("client_ref") or "")
+        milestone_name = epic_milestone.get(reference)
+        if milestone_name and milestone_name in windows:
+            window = windows[milestone_name]
+            call.arguments["start_date"], call.arguments["due_date"] = window
+            epic_window[reference] = window
+            stamped += 1
+
+    for call in plan.calls:
+        if call.tool != "create_jira_issue" or call.arguments.get("start_date"):
+            continue
+        window = epic_window.get(str(call.arguments.get("parent_key") or ""))
+        if window:
+            call.arguments["start_date"], call.arguments["due_date"] = window
+            stamped += 1
+
+    if stamped:
+        log.info("tools.schedule_stamped", issues=stamped, start=str(start))
+    else:
+        # Worth saying out loud: a silently undated backlog looks like a deliberate
+        # choice on a timeline rather than a lookup that matched nothing.
+        log.warning(
+            "tools.schedule_unstamped",
+            issues=len(plan.calls),
+            detail="no epic matched a blueprint milestone; the backlog is undated",
+        )

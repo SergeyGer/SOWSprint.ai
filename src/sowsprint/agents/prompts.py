@@ -23,6 +23,7 @@ Persona design notes:
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
 
 from ..llm.base import Message, system, user
@@ -429,6 +430,7 @@ def build_tool_planner_messages(
     blueprint: dict[str, Any],
     sow: dict[str, Any] | None,
     available_tools: list[dict[str, Any]],
+    project_start: date | None = None,
 ) -> list[Message]:
     """Messages asking the model to emit tool calls for workspace creation."""
     blocks = [
@@ -436,6 +438,22 @@ def build_tool_planner_messages(
         "",
         render_tagged("blueprint", blueprint),
     ]
+    if project_start is not None:
+        # Milestone windows are given rather than left to the model: arithmetic on dates
+        # is the kind of thing a language model gets subtly wrong, and a schedule that is
+        # off by a week is worse than no schedule because it looks authoritative.
+        lines = [f"Project start date: {project_start.isoformat()} ({project_start:%A})."]
+        cursor = project_start
+        for milestone in (blueprint or {}).get("milestones", []) or []:
+            weeks = max(1, int(milestone.get("duration_weeks") or 1))
+            begins = cursor
+            ends = cursor + timedelta(weeks=weeks) - timedelta(days=1)
+            lines.append(
+                f"- {milestone.get('name', 'Milestone')}: {begins.isoformat()} to "
+                f"{ends.isoformat()} ({weeks} week(s))"
+            )
+            cursor = begins + timedelta(weeks=weeks)
+        blocks += ["", render_tagged("schedule", "\n".join(lines))]
     if sow:
         blocks += ["", render_tagged("sow", sow)]
     blocks += [

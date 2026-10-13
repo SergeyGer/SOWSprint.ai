@@ -15,6 +15,7 @@ Configuration precedence (highest first):
 from __future__ import annotations
 
 import functools
+from datetime import date, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
@@ -185,6 +186,14 @@ class Settings(BaseSettings):
     # rest. A reader who unticks a PDF expecting a cheaper run would be misled, so the UI
     # says so rather than implying otherwise.
     artifact_kinds: str = ""
+
+    # When the engagement starts. Empty means "next Monday", which is the convention a
+    # delivery plan is usually drawn against and a date nobody has to think about.
+    #
+    # It matters because a Jira timeline with no dates is a list, not a schedule: the
+    # whole point of pushing the backlog into a tracker is that somebody can see what
+    # lands when.
+    project_start: str = ""
 
     # ---------------------------------------------------------------- guardrails
     max_critic_retries: int = 1
@@ -368,6 +377,28 @@ class Settings(BaseSettings):
         if not self.provider_is_usable(provider):
             return f"{provider.value} (no key - offline fallback)"
         return provider.value
+
+    @property
+    def resolved_project_start(self) -> date:
+        """The engagement start date: the configured one, or next Monday.
+
+        Next Monday rather than today, because a plan that starts today starts mid-week
+        and every milestone boundary lands on an arbitrary weekday. Monday is also what a
+        reader expects a delivery schedule to be drawn against.
+        """
+        if self.project_start.strip():
+            try:
+                return date.fromisoformat(self.project_start.strip())
+            except ValueError:
+                from .observability.logging import get_logger
+
+                get_logger(__name__).warning(
+                    "config.project_start_unparseable",
+                    value=self.project_start,
+                    fallback="next Monday",
+                )
+        today = date.today()
+        return today + timedelta(days=(7 - today.weekday()) % 7 or 7)
 
     @property
     def enabled_artifacts(self) -> set[str] | None:

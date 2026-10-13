@@ -125,6 +125,21 @@ CREATE_JIRA_ISSUE_PARAMS: dict[str, Any] = {
                 "reference as parent_key."
             ),
         },
+        # These must be declared, not merely documented. A parameter absent from the
+        # schema is unavailable rather than optional, so the schedule block the prompt
+        # sends would be asking for something the tool cannot accept — which is exactly
+        # how the first attempt produced twenty-six undated issues.
+        "start_date": {
+            "type": "string",
+            "description": (
+                "Planned start, YYYY-MM-DD, from the milestone window in the request. "
+                "Jira draws its timeline from this; without it a plan is a list."
+            ),
+        },
+        "due_date": {
+            "type": "string",
+            "description": "Planned finish, YYYY-MM-DD, from the milestone window.",
+        },
     },
     "required": ["project_key", "summary", "issue_type"],
     "additionalProperties": False,

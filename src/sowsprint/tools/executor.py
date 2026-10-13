@@ -78,7 +78,13 @@ class ToolExecutor:
 
     #: Argument names whose values may be a caller-side reference that must be
     #: rewritten to a real resource key once the referenced call has executed.
-    REFERENCE_ARGUMENTS = ("parent_key",)
+    #: Arguments whose value may be a reference to a key generated earlier in the run.
+    #:
+    #: `project_key` belongs here because workspace creation may allocate a different key
+    #: from the one the planner proposed — a second run for the same client steps over the
+    #: taken key rather than writing into the first run's project. Without this, every
+    #: issue would still name the proposed key and fail on a project that does not exist.
+    REFERENCE_ARGUMENTS = ("parent_key", "project_key")
 
     def __init__(self, registry: ToolRegistry) -> None:
         self.registry = registry

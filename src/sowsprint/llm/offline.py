@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from datetime import date, timedelta
 from typing import Any
 
 from pydantic import BaseModel
@@ -1523,9 +1524,25 @@ def project_key_from_title(title: str) -> str:
 _project_key = project_key_from_title
 
 
+def _window_arguments(
+    windows: dict[str, tuple[str, str]], milestone_name: str
+) -> dict[str, str]:
+    """The date range for a milestone, as issue arguments.
+
+    Shared by the epic and story branches rather than written twice: the two must agree,
+    and a story scheduled outside its own epic's window is the kind of inconsistency
+    nobody notices until a Gantt chart draws it.
+    """
+    if milestone_name not in windows:
+        return {}
+    begins, ends = windows[milestone_name]
+    return {"start_date": begins, "due_date": ends}
+
+
 def tool_plan_offline(
     blueprint_payload: dict[str, Any] | None,
     sow_payload: dict[str, Any] | None = None,
+    start_date: date | None = None,
 ) -> dict[str, Any]:
     """Deterministic function-calling plan for workspace provisioning.
 
@@ -1537,6 +1554,22 @@ def tool_plan_offline(
 
     project_name = (sow.title if sow else "Engagement").replace("Statement of Work — ", "")
     project_key = _project_key(project_name)
+
+    # A plan with no dates is a list, not a schedule, and the reason to push a backlog into
+    # a tracker is that somebody can see what lands when. Milestones run back to back from
+    # the start date; epics inherit their milestone's window and stories inherit the epic's,
+    # which is what draws a usable timeline without inventing per-story precision the
+    # blueprint does not have.
+
+    cursor = start_date
+    milestone_windows: dict[str, tuple[str, str]] = {}
+    if cursor is not None:
+        for milestone in blueprint.milestones:
+            weeks = max(1, milestone.duration_weeks or 1)
+            begins = cursor
+            ends = cursor + timedelta(weeks=weeks) - timedelta(days=1)
+            milestone_windows[milestone.name] = (begins.isoformat(), ends.isoformat())
+            cursor = begins + timedelta(weeks=weeks)
 
     calls: list[dict[str, Any]] = [
         {
@@ -1568,6 +1601,7 @@ def tool_plan_offline(
                         "issue_type": "Epic",
                         "labels": [milestone.name.split()[0].lower()],
                         "client_ref": epic.key,
+                        **_window_arguments(milestone_windows, milestone.name),
                     },
                     "rationale": f"Epic for {epic.name}; referenced later as {epic.key}.",
                 }
@@ -1592,6 +1626,7 @@ def tool_plan_offline(
                             "priority": story.priority,
                             "labels": story.labels[:6],
                             "parent_key": epic.key,
+                            **_window_arguments(milestone_windows, milestone.name),
                         },
                         "rationale": f"Story under epic {epic.key}.",
                     }
@@ -1745,6 +1780,7 @@ class OfflineLLMClient(BaseLLMClient):
         return tool_plan_offline(
             blueprint if isinstance(blueprint, dict) else None,
             sow if isinstance(sow, dict) else None,
+            start_date=self.settings.resolved_project_start,
         )
 
     # ------------------------------------------------------------------ fallback

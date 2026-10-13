@@ -16,6 +16,7 @@ import asyncio
 import contextlib
 import html
 import tempfile
+import time
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
@@ -395,7 +396,14 @@ def _flow_diagram(visited: dict[str, str]) -> str:
     for node, icon, label, purpose in AGENT_FLOW:
         outcome = visited.get(node)
         if outcome is None:
-            mark, detail = "·", "*not reached*"
+            # "not reached" reads as an omission or a failure. For an optional stage it
+            # usually means the opposite: Clarify asks nothing when the brief already
+            # answers everything, which is the good outcome, and calling that unreached
+            # makes a clean run look truncated.
+            if node in OPTIONAL_STAGES:
+                mark, detail = "—", "*not needed*"
+            else:
+                mark, detail = "·", "*not reached*"
         elif outcome.startswith("⚠"):
             mark, detail = "⚠️", outcome
         else:
@@ -414,7 +422,26 @@ async def _set_activity(text: str, *, done: bool = False) -> None:
     which starts a second engagement and doubles the cost.
     """
     message = cl.user_session.get("activity_msg")
-    content = f"{'✅' if done else '⏳'} {text}"
+
+    # The difference between "working" and "hung" is the whole question a waiting user
+    # has. A spinner leaves them counting seconds with no idea whether three minutes is
+    # normal, so the line names the agent, says what it is doing, and shows how long it
+    # has been at it.
+    started = cl.user_session.get("activity_started")
+    if started is None or done:
+        started = time.time()
+        cl.user_session.set("activity_started", started)
+    elapsed = int(time.time() - started)
+
+    if done:
+        content = f"### ✅ {text}"
+    else:
+        content = (
+            f"### ⏳ Working — {elapsed // 60}:{elapsed % 60:02d}\n\n"
+            f"{text}\n\n"
+            "<sub>The agents run in sequence; this line updates as each one finishes. "
+            "Nothing is sent to Jira or Notion before you approve.</sub>"
+        )
     if message is None:
         message = cl.Message(content=content, author="SOWSprint")
         cl.user_session.set("activity_msg", message)
@@ -522,7 +549,12 @@ async def _drive(
                     done=stage in ("tools", "finalize"),
                 )
 
-            if stage in ("legal", "critic", "tools"):
+            # Only once a verdict exists. Creating the dashboard during `legal` put a cost
+            # table in the transcript ABOVE the audit it was paying for, so the reader saw
+            # what the run had spent before seeing what it had concluded — while the
+            # numbers were still moving. It is edited in place, so creating it early fixes
+            # its position for the rest of the conversation.
+            if stage in ("tools", "finalize"):
                 await _update_dashboard(session)
     finally:
         # Drain the worker before reading the outcome. The result is deliberately
@@ -824,6 +856,77 @@ def _notion_link() -> str:
     )
 
 
+def _approval_summary(outcome: RunOutcome) -> list[str]:
+    """What the approval gate is actually asking about.
+
+    It used to print the planned function calls — `create_jira_project_workspace`,
+    `create_jira_issue`, `create_notion_page` — which are the pipeline's vocabulary rather
+    than the reader's, and thirty near-identical lines of them. A person approving a
+    provisioning step needs to know what will exist afterwards and where, so they can
+    decide whether it is right; the mechanism is a log concern.
+    """
+    from collections import Counter
+
+    # Grouped by what will EXIST, not by which function creates it. Falling back to the
+    # tool name put `create_jira_project_workspace` on screen — the pipeline's vocabulary,
+    # which is exactly what this summary exists to keep out of the reader's way.
+    destinations = {
+        "create_jira_project_workspace": "Jira project",
+        "create_notion_page": "Notion page",
+        "update_jira_issue": "issue update",
+    }
+    wording = {
+        "epic": ("epic", "epics"),
+        "story": ("user story", "user stories"),
+        "task": ("task", "tasks"),
+        "bug": ("bug", "bugs"),
+        "Jira project": ("Jira project", "Jira projects"),
+        "Notion page": ("Notion page", "Notion pages"),
+        "issue update": ("issue update", "issue updates"),
+    }
+
+    counts: Counter[str] = Counter()
+    for call in outcome.tool_calls:
+        arguments = call.get("arguments") or {}
+        kind = str(arguments.get("issue_type") or "").lower()
+        if kind:
+            counts[kind] += 1
+        elif call.get("tool"):
+            counts[destinations.get(str(call["tool"]), "other item")] += 1
+
+    project = ""
+    for call in outcome.tool_calls:
+        arguments = call.get("arguments") or {}
+        if arguments.get("project_key"):
+            project = str(arguments["project_key"])
+            break
+
+    if not counts:
+        return ["_Nothing will be provisioned._", ""]
+
+    lines = [
+        f"**Project start: {_settings().resolved_project_start:%A, %d %B %Y}** "
+        "— change it in the settings panel before approving if the engagement starts "
+        "later.",
+        "",
+        "**What this will create**",
+        "",
+    ]
+    for kind, count in counts.most_common():
+        singular, plural = wording.get(kind, (kind.replace("_", " "), f"{kind}s"))
+        lines.append(f"- {count} {singular if count == 1 else plural}")
+
+    if project:
+        start = _settings().resolved_project_start
+        lines += [
+            "",
+            f"A **new Jira project `{project}`** starting {start:%d %B %Y}, plus a page in "
+            "Notion. Nothing is added to an existing project: each run provisions its own "
+            "workspace so two engagements stay comparable.",
+        ]
+    return lines
+
+
 async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
     """Render a run outcome: questions, approval prompt, or final deliverables."""
     icon = STATUS_ICONS.get(outcome.status, "•")
@@ -882,20 +985,7 @@ async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
                 f"{len(outcome.critique.findings)} finding(s).",
                 "",
             ]
-        lines.append(f"**Planned function calls: {len(outcome.tool_calls)}**")
-        lines.append("")
-        for call in outcome.tool_calls[:12]:
-            arguments = call.get("arguments", {})
-            label = (
-                arguments.get("summary")
-                or arguments.get("title")
-                or arguments.get("project_key", "")
-            )
-            kind = arguments.get("issue_type", "")
-            lines.append(f"- `{call.get('tool')}` {f'({kind})' if kind else ''} {label}")
-        if len(outcome.tool_calls) > 12:
-            lines.append(f"- … and {len(outcome.tool_calls) - 12} more")
-
+        lines += _approval_summary(outcome)
         lines += ["", "_Use the buttons below, or reply `approve` / `reject`._"]
         await cl.Message(
             content="\n".join(lines),
@@ -974,25 +1064,6 @@ async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
         where = _plan_destinations(outcome)
         if where:
             lines += ["**Open it:** " + " · ".join(where), ""]
-
-    # ------------------------------------------------------------------ retrieval
-    if outcome.retrieval:
-        lines += [
-            "---",
-            "",
-            "<details><summary>Compliance retrieval detail</summary>",
-            "",
-            f"- Jurisdiction filter: `{outcome.retrieval.get('jurisdiction')}` "
-            "(enforced inside the vector engine, not after it)",
-            f"- Dense candidates: {outcome.retrieval.get('dense_candidates')} · "
-            f"sparse (BM25): {outcome.retrieval.get('sparse_candidates')} · "
-            f"fused {outcome.retrieval.get('fused_candidates')} → "
-            f"returned {outcome.retrieval.get('returned')}",
-            f"- Retrieval time: {outcome.retrieval.get('total_ms')} ms",
-            "",
-            "</details>",
-            "",
-        ]
 
     # ------------------------------------------------------------------ destinations
     if outcome.integrations:
@@ -1235,6 +1306,18 @@ async def on_chat_start() -> None:
                 initial=False,
                 description="Provision the tracker as soon as the audit passes.",
             ),
+            cl.input_widget.DatePicker(
+                id="project_start",
+                label="Project start date",
+                initial=_settings().resolved_project_start.isoformat(),
+                description=(
+                    "The date the delivery plan begins. Defaults to next Monday, so "
+                    "milestone boundaries land on weekdays rather than mid-week. Every "
+                    "epic and story in Jira is scheduled from here, which is what makes "
+                    "the timeline show a schedule instead of a list. Change it before "
+                    "approving if the engagement starts later."
+                ),
+            ),
             cl.input_widget.MultiSelect(
                 id="artifact_kinds",
                 label="Documents to produce",
@@ -1272,6 +1355,10 @@ async def on_settings_update(settings: dict[str, Any]) -> None:
     cl.user_session.set("dry_run_integrations", bool(settings.get("dry_run_integrations", True)))
     chosen = list(settings.get("artifact_kinds") or [])
     cl.user_session.set("artifact_kinds", chosen)
+
+    start = settings.get("project_start")
+    if start:
+        cl.user_session.set("project_start", str(start))
 
     budget = float(settings.get("session_budget_usd", _settings().session_budget_usd))
     existing = _session()
@@ -1481,6 +1568,10 @@ async def _start_run(requirement: str) -> None:
     chosen = cl.user_session.get("artifact_kinds")
     if chosen:
         settings = settings.model_copy(update={"artifact_kinds": ",".join(chosen)})
+
+    start = cl.user_session.get("project_start")
+    if start:
+        settings = settings.model_copy(update={"project_start": str(start)})
 
     from sowsprint.telemetry import drop_ledger, get_ledger
 
