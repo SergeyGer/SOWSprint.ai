@@ -23,7 +23,7 @@ Persona design notes:
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 from ..llm.base import Message, system, user
@@ -442,17 +442,21 @@ def build_tool_planner_messages(
         # Milestone windows are given rather than left to the model: arithmetic on dates
         # is the kind of thing a language model gets subtly wrong, and a schedule that is
         # off by a week is worse than no schedule because it looks authoritative.
-        lines = [f"Project start date: {project_start.isoformat()} ({project_start:%A})."]
-        cursor = project_start
-        for milestone in (blueprint or {}).get("milestones", []) or []:
-            weeks = max(1, int(milestone.get("duration_weeks") or 1))
-            begins = cursor
-            ends = cursor + timedelta(weeks=weeks) - timedelta(days=1)
+        from ..schedule import milestone_windows
+
+        milestones = (blueprint or {}).get("milestones", []) or []
+        spans = milestone_windows(
+            project_start, [int(m.get("duration_weeks") or 1) for m in milestones]
+        )
+        lines = [
+            f"Project start date: {project_start.isoformat()} ({project_start:%A}). "
+            "Milestone windows, already computed — use these dates verbatim:"
+        ]
+        for milestone, (begins, ends) in zip(milestones, spans, strict=False):
             lines.append(
                 f"- {milestone.get('name', 'Milestone')}: {begins.isoformat()} to "
-                f"{ends.isoformat()} ({weeks} week(s))"
+                f"{ends.isoformat()} ({milestone.get('duration_weeks') or 1} week(s))"
             )
-            cursor = begins + timedelta(weeks=weeks)
         blocks += ["", render_tagged("schedule", "\n".join(lines))]
     if sow:
         blocks += ["", render_tagged("sow", sow)]

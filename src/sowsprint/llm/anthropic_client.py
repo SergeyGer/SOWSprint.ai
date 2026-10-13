@@ -151,10 +151,16 @@ class AnthropicClient(BaseLLMClient):
 
         request: dict[str, Any] = {
             "model": model,
-            "system": self._cacheable_system(system_prompt, model),
             "messages": turns,
             "max_tokens": max_tokens,
         }
+        # Only send `system` when there is one. Passing None makes the API read the field
+        # as null rather than as an absent array, and it rejects the whole request with
+        # "system: Input should be a valid array" — an error that names the field but not
+        # the reason, and that appears only on the paths which carry no system message.
+        system_blocks = self._cacheable_system(system_prompt, model)
+        if system_blocks:
+            request["system"] = system_blocks
         if not rejects_temperature(model):
             request["temperature"] = temperature
 

@@ -112,25 +112,22 @@ def _stamp_schedule(plan: ToolCallPlan, blueprint: dict[str, Any], start: Any) -
     mislabels keeps whatever it proposed rather than being given a date that belongs to
     something else.
     """
-    from datetime import timedelta
+    from ..schedule import milestone_windows
 
     milestones = (blueprint or {}).get("milestones") or []
     if not milestones or start is None:
         return
 
+    spans = milestone_windows(
+        start, [int(m.get("duration_weeks") or 1) for m in milestones]
+    )
     windows: dict[str, tuple[str, str]] = {}
     epic_milestone: dict[str, str] = {}
-    cursor = start
-    for milestone in milestones:
+    for milestone, (begins, ends) in zip(milestones, spans, strict=False):
         name = str(milestone.get("name") or "")
         if not name:
             continue
-        weeks = max(1, int(milestone.get("duration_weeks") or 1))
-        windows[name] = (
-            cursor.isoformat(),
-            (cursor + timedelta(weeks=weeks) - timedelta(days=1)).isoformat(),
-        )
-        cursor = cursor + timedelta(weeks=weeks)
+        windows[name] = (begins.isoformat(), ends.isoformat())
         # The blueprint states which milestone owns which epic, and `client_ref` is
         # required to carry the epic's key — so this link is guaranteed by the plan format.
         # Matching on the "[Milestone] Name" summary prefix is not: it is a convention of

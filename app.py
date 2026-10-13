@@ -904,27 +904,99 @@ def _approval_summary(outcome: RunOutcome) -> list[str]:
     if not counts:
         return ["_Nothing will be provisioned._", ""]
 
-    lines = [
-        f"**Project start: {_settings().resolved_project_start:%A, %d %B %Y}** "
-        "— change it in the settings panel before approving if the engagement starts "
-        "later.",
-        "",
-        "**What this will create**",
-        "",
-    ]
+    lines = [_schedule_block(outcome), "", "**What this will create**", ""]
     for kind, count in counts.most_common():
         singular, plural = wording.get(kind, (kind.replace("_", " "), f"{kind}s"))
         lines.append(f"- {count} {singular if count == 1 else plural}")
 
     if project:
-        start = _settings().resolved_project_start
         lines += [
             "",
-            f"A **new Jira project `{project}`** starting {start:%d %B %Y}, plus a page in "
-            "Notion. Nothing is added to an existing project: each run provisions its own "
-            "workspace so two engagements stay comparable.",
+            f"A **new Jira project `{project}`**, plus a page in Notion. Nothing is added "
+            "to an existing project: each run provisions its own workspace so two "
+            "engagements stay comparable.",
         ]
     return lines
+
+
+def _project_shape(outcome: RunOutcome) -> str:
+    """Planned dates and size, as one sentence.
+
+    A start date alone answers half the question. What a reader weighing a proposal needs
+    is when it begins, when it ends, how long that is, and what it takes to do — and the
+    last of those is the one nobody can estimate by reading a milestone list.
+    """
+    start = _settings().resolved_project_start
+    weeks = 0
+    if outcome.blueprint is not None:
+        weeks = outcome.blueprint.estimated_duration_weeks or 0
+        if not weeks:
+            weeks = sum(m.duration_weeks or 0 for m in outcome.blueprint.milestones)
+
+    if not weeks:
+        return f"**Start:** {start:%A, %d %B %Y} — change it in the settings panel."
+
+    from sowsprint.schedule import project_window
+
+    _, finish = project_window(start, weeks)
+    points = outcome.blueprint.estimated_total_points if outcome.blueprint else 0
+    stories = len(outcome.blueprint.all_stories()) if outcome.blueprint else 0
+
+    size = f"{weeks} weeks"
+    if stories:
+        size += f" · {stories} stories"
+    if points:
+        size += f" · {points} points"
+
+    return (
+        f"**Start:** {start:%A, %d %B %Y} · "
+        f"**Planned finish:** {finish:%A, %d %B %Y} · "
+        f"**Duration:** {size}"
+    )
+
+
+def _resource_block(outcome: RunOutcome) -> str:
+    """The roles this plan needs, counted from the work itself.
+
+    There is no staffing field in the blueprint and inventing one would be guesswork. The
+    stories do carry the role they are written for — "as a warehouse operator I want…" —
+    so counting them gives a defensible answer to "what does this take", derived from the
+    plan rather than asserted alongside it.
+    """
+    if outcome.blueprint is None:
+        return ""
+
+    from collections import Counter
+
+    roles: Counter[str] = Counter()
+    for story in outcome.blueprint.all_stories():
+        role = (getattr(story, "as_a", "") or "").strip()
+        if role:
+            roles[role] += 1
+    if not roles:
+        return ""
+
+    listed = ", ".join(
+        f"{role} ({count})" if count > 1 else role for role, count in roles.most_common(6)
+    )
+    extra = len(roles) - 6
+    return (
+        f"**Resources:** {listed}"
+        + (f" and {extra} more role(s)" if extra > 0 else "")
+        + " — counted from the roles the stories are written for."
+    )
+
+
+def _schedule_block(outcome: RunOutcome) -> str:
+    """Dates, duration and resources together, in the order a reader asks for them."""
+    parts = [_project_shape(outcome)]
+    resources = _resource_block(outcome)
+    if resources:
+        parts.append(resources)
+    parts.append(
+        "<sub>Change the start date in the settings panel before approving.</sub>"
+    )
+    return "\n\n".join(parts)
 
 
 async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:

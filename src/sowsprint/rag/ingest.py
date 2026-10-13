@@ -246,9 +246,34 @@ def ensure_corpus_indexed(
         if retriever is not None:
             retriever.store = target_store
             retriever.bm25 = encoder
+        # Report the real composition on the reuse path too.
+        #
+        # This branch returned only `chunks` and `backend`, leaving entries, the
+        # jurisdiction split, the embedder name and the duration at their zero defaults.
+        # The summary then read
+        #
+        #     0 corpus entries → 615 chunks (0 EU / 0 US) indexed into qdrant via  in 0 ms
+        #
+        # which is worse than saying nothing. The index is fine and 615 chunks is true, but
+        # "0 corpus entries" tells a reader the knowledge base is empty at the exact moment
+        # they are deciding whether to trust the run.
+        try:
+            composition = corpus_composition()
+            counts = composition.get("jurisdictions") or {}
+            entries = int(composition.get("entries") or 0)
+            eu = int(counts.get("EU") or 0)
+            us = int(counts.get("US") or 0)
+        except Exception as exc:
+            log.warning("ingest.composition_failed", error=str(exc))
+            entries, eu, us = 0, 0, 0
+
         return IngestStats(
+            entries=entries,
             chunks=existing,
             backend=target_store.name,
+            embedder=resolved.embedding_model,
+            eu_chunks=eu,
+            us_chunks=us,
             reused_existing=True,
         )
 

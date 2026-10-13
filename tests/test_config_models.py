@@ -8,6 +8,7 @@ never change the outcome of a resolution test.
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from typing import ClassVar
 
 import pytest
@@ -953,6 +954,56 @@ def test_partial_configuration_is_reported_per_tier():
     matrix = settings.capability_matrix()
     assert matrix["reasoning"] == "anthropic"
     assert "no key" in matrix["critic"]
+
+
+class TestAnthropicRequestShape:
+    """The request must omit `system` rather than send it as null.
+
+    Regression guard for a bug that came back once: `"system": None` makes the API read the
+    field as null rather than as an absent array and reject the whole request with
+    "system: Input should be a valid array". It fires only on the paths that carry no
+    system message, so most calls hide it — a probe call with a bare user turn was the
+    first thing to fail.
+    """
+
+    def _captured(self, monkeypatch, messages):
+        from sowsprint.config import Settings
+        from sowsprint.llm.anthropic_client import AnthropicClient
+
+        settings = Settings(anthropic_api_key="sk-ant-fake", llm_provider="anthropic")
+        client = AnthropicClient("request-shape", settings)
+        seen: dict[str, object] = {}
+
+        class _Response:
+            # Built per instance: a class-level list is a mutable default that ruff flags,
+            # and the isolation is worth having in a fixture-shaped helper anyway.
+            def __init__(self) -> None:
+                self.content = [SimpleNamespace(type="text", text="ok")]
+                self.usage = SimpleNamespace(input_tokens=1, output_tokens=1)
+
+        def fake_create(**kwargs):
+            seen.update(kwargs)
+            return _Response()
+
+        monkeypatch.setattr(client._client.messages, "create", fake_create)
+        client.complete(messages, max_tokens=16, node="test")
+        return seen
+
+    def test_no_system_message_omits_the_field(self, monkeypatch) -> None:
+        from sowsprint.llm.base import Message
+
+        sent = self._captured(monkeypatch, [Message(role="user", content="hi")])
+        assert "system" not in sent, "an absent system prompt must omit the key entirely"
+
+    def test_a_system_message_is_sent_as_a_cacheable_block(self, monkeypatch) -> None:
+        from sowsprint.llm.base import Message
+
+        sent = self._captured(
+            monkeypatch,
+            [Message(role="system", content="Be terse."), Message(role="user", content="hi")],
+        )
+        assert isinstance(sent.get("system"), list)
+        assert sent["system"][0]["cache_control"] == {"type": "ephemeral"}
 
 
 class TestAnthropicParameterCompatibility:

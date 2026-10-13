@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 from pydantic import BaseModel
@@ -1561,15 +1561,15 @@ def tool_plan_offline(
     # which is what draws a usable timeline without inventing per-story precision the
     # blueprint does not have.
 
-    cursor = start_date
-    milestone_windows: dict[str, tuple[str, str]] = {}
-    if cursor is not None:
-        for milestone in blueprint.milestones:
-            weeks = max(1, milestone.duration_weeks or 1)
-            begins = cursor
-            ends = cursor + timedelta(weeks=weeks) - timedelta(days=1)
-            milestone_windows[milestone.name] = (begins.isoformat(), ends.isoformat())
-            cursor = begins + timedelta(weeks=weeks)
+    windows: dict[str, tuple[str, str]] = {}
+    if start_date is not None:
+        from ..schedule import milestone_windows as _windows
+
+        spans = _windows(
+            start_date, [m.duration_weeks or 1 for m in blueprint.milestones]
+        )
+        for milestone, (begins, ends) in zip(blueprint.milestones, spans, strict=False):
+            windows[milestone.name] = (begins.isoformat(), ends.isoformat())
 
     calls: list[dict[str, Any]] = [
         {
@@ -1601,7 +1601,7 @@ def tool_plan_offline(
                         "issue_type": "Epic",
                         "labels": [milestone.name.split()[0].lower()],
                         "client_ref": epic.key,
-                        **_window_arguments(milestone_windows, milestone.name),
+                        **_window_arguments(windows, milestone.name),
                     },
                     "rationale": f"Epic for {epic.name}; referenced later as {epic.key}.",
                 }
@@ -1626,7 +1626,7 @@ def tool_plan_offline(
                             "priority": story.priority,
                             "labels": story.labels[:6],
                             "parent_key": epic.key,
-                            **_window_arguments(milestone_windows, milestone.name),
+                            **_window_arguments(windows, milestone.name),
                         },
                         "rationale": f"Story under epic {epic.key}.",
                     }
