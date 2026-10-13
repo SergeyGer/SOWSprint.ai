@@ -9,6 +9,7 @@ knowing anything about file formats.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,60 @@ def project_code(title: str) -> str:
     return project_key_from_title(title)
 
 
+#: Every artefact this bundle can produce.
+#:
+#: Declared once so the UI's selection list and the exporter cannot disagree about what
+#: exists. A kind the UI offers but this table omits would silently produce nothing.
+ARTIFACT_KINDS: dict[str, str] = {
+    "sow_markdown": "Statement of Work (Markdown)",
+    "sow_pdf": "Statement of Work (PDF)",
+    "backlog_markdown": "Delivery backlog (Markdown)",
+    "jira_csv": "Jira-importable backlog (CSV)",
+    "backlog_json": "Backlog (JSON)",
+    "audit_markdown": "Quality audit (Markdown)",
+    "report_json": "Run report (JSON)",
+}
+
+
+def _wanted(kind: str, kinds: set[str] | None) -> bool:
+    """Whether this artefact was asked for. ``None`` means everything."""
+    return kinds is None or kind in kinds
+
+
+def _write(
+    refs: list[ArtifactRef],
+    *,
+    kind: str,
+    kinds: set[str] | None,
+    target: Path,
+    filename: str,
+    label: str,
+    event: str,
+    body: Callable[[], Any],
+    text: bool = True,
+) -> None:
+    """Render one artefact, if it was asked for, and record it.
+
+    A helper rather than six near-identical try blocks. The selection check, the failure
+    isolation and the logging were repeated for every artefact, which is how the first
+    attempt at adding a filter dedented a block out of its parent: six copies of a
+    structure is six chances to get the edit slightly wrong.
+
+    ``text=False`` is for writers that take the path themselves, like the PDF renderer.
+    ``body`` still returns something, and is called for its side effect.
+    """
+    if not _wanted(kind, kinds):
+        return
+    try:
+        path = target / filename
+        content = body()
+        if text:
+            path.write_text(str(content), encoding="utf-8")
+        refs.append(_ref(kind, path, label))
+    except Exception as exc:
+        log.error(event, error=str(exc))
+
+
 def render_deliverables(
     *,
     session_id: str,
@@ -66,8 +121,15 @@ def render_deliverables(
     integrations: list[dict[str, Any]] | None,
     cost: dict[str, Any] | None,
     diff: SOWDiff | None = None,
+    kinds: set[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Write every artefact for a completed run and return their references.
+    """Write the requested artefacts for a completed run and return their references.
+
+    ``kinds=None`` writes everything; otherwise only the named kinds. Every artefact is
+    rendered from objects already in memory, so deselecting one saves rendering time and
+    disk rather than model tokens. That distinction is worth stating plainly, because a
+    reader who unticks the PDF expecting a cheaper run would be misled about where the
+    money actually goes — the audit is roughly 70% of it.
 
     Individual failures are isolated: a PDF rendering problem must not prevent the
     backlog CSV from being produced.
@@ -84,100 +146,96 @@ def render_deliverables(
 
     # ---------------------------------------------------------------- SOW markdown
     if parsed_sow is not None:
-        try:
-            path = target / "statement_of_work.md"
-            header = (
+        _write(
+            refs, kind="sow_markdown", kinds=kinds, target=target,
+            filename="statement_of_work.md",
+            label="Statement of Work (Markdown)",
+            event="export.markdown_failed",
+            body=lambda: (
                 f"<!-- run_id: {run_id} · session: {session_id} · "
                 f"generated: {datetime.utcnow().isoformat()}Z -->\n\n"
             )
-            path.write_text(header + render_sow_markdown(parsed_sow), encoding="utf-8")
-            refs.append(_ref("sow_markdown", path, "Statement of Work (Markdown)"))
-        except Exception as exc:
-            log.error("export.markdown_failed", error=str(exc))
-
-        try:
-            path = target / "statement_of_work.pdf"
-            render_sow_pdf(parsed_sow, path)
-            refs.append(_ref("sow_pdf", path, "Statement of Work (PDF)"))
-        except Exception as exc:
-            log.error("export.pdf_failed", error=str(exc))
+            + render_sow_markdown(parsed_sow),
+        )
+        _write(
+            refs, kind="sow_pdf", kinds=kinds, target=target,
+            filename="statement_of_work.pdf",
+            label="Statement of Work (PDF)",
+            event="export.pdf_failed",
+            body=lambda: render_sow_pdf(parsed_sow, target / "statement_of_work.pdf"),
+            text=False,
+        )
 
     # ---------------------------------------------------------------- backlog
     if parsed_blueprint is not None:
-        try:
-            path = target / "backlog.md"
-            path.write_text(render_backlog_markdown(parsed_blueprint), encoding="utf-8")
-            refs.append(_ref("backlog_markdown", path, "Delivery backlog (Markdown)"))
-        except Exception as exc:
-            log.error("export.backlog_failed", error=str(exc))
-
-        try:
-            path = target / "jira_backlog.csv"
-            path.write_text(render_jira_csv(parsed_blueprint, project_key=code), encoding="utf-8")
-            refs.append(_ref("jira_csv", path, "Jira-importable backlog (CSV)"))
-        except Exception as exc:
-            log.error("export.csv_failed", error=str(exc))
-
-        try:
-            path = target / "backlog.json"
-            path.write_text(
-                json.dumps(parsed_blueprint.model_dump(mode="json"), indent=2, default=str),
-                encoding="utf-8",
-            )
-            refs.append(_ref("backlog_json", path, "Backlog (JSON)"))
-        except Exception as exc:
-            log.error("export.json_failed", error=str(exc))
+        _write(
+            refs, kind="backlog_markdown", kinds=kinds, target=target,
+            filename="backlog.md",
+            label="Delivery backlog (Markdown)",
+            event="export.backlog_failed",
+            body=lambda: render_backlog_markdown(parsed_blueprint),
+        )
+        _write(
+            refs, kind="jira_csv", kinds=kinds, target=target,
+            filename="jira_backlog.csv",
+            label="Jira-importable backlog (CSV)",
+            event="export.csv_failed",
+            body=lambda: render_jira_csv(parsed_blueprint, project_key=code),
+        )
+        _write(
+            refs, kind="backlog_json", kinds=kinds, target=target,
+            filename="backlog.json",
+            label="Backlog (JSON)",
+            event="export.json_failed",
+            body=lambda: json.dumps(
+                parsed_blueprint.model_dump(mode="json"), indent=2, default=str
+            ),
+        )
 
     # ---------------------------------------------------------------- audit report
     if parsed_critique is not None:
-        try:
-            path = target / "quality_audit.md"
-            path.write_text(render_critique_markdown(parsed_critique), encoding="utf-8")
-            refs.append(_ref("audit_markdown", path, "Critic quality audit"))
-        except Exception as exc:
-            log.error("export.audit_failed", error=str(exc))
+        _write(
+            refs, kind="audit_markdown", kinds=kinds, target=target,
+            filename="quality_audit.md",
+            label="Quality audit (Markdown)",
+            event="export.audit_failed",
+            body=lambda: render_critique_markdown(parsed_critique),
+        )
 
     # ---------------------------------------------------------------- revision diff
     if diff is not None:
-        try:
-            path = target / f"revision_{diff.from_revision}_to_{diff.to_revision}.md"
-            path.write_text(render_sow_diff(diff), encoding="utf-8")
-            refs.append(
-                _ref(
-                    "revision_markdown",
-                    path,
-                    f"Revision diff {diff.from_revision} → {diff.to_revision}",
-                )
-            )
-        except Exception as exc:
-            log.error("export.diff_failed", error=str(exc))
+        _write(
+            refs, kind="revision_markdown", kinds=kinds, target=target,
+            filename=f"revision_{diff.from_revision}_to_{diff.to_revision}.md",
+            label=f"Revision diff {diff.from_revision} → {diff.to_revision}",
+            event="export.diff_failed",
+            body=lambda: render_sow_diff(diff),
+        )
 
     # ---------------------------------------------------------------- run report
-    try:
-        path = target / "run_report.json"
-        path.write_text(
-            json.dumps(
-                {
-                    "run_id": run_id,
-                    "session_id": session_id,
-                    "generated_at": datetime.utcnow().isoformat() + "Z",
-                    "scope": scope,
-                    "blueprint_summary": _blueprint_summary(parsed_blueprint),
-                    "sow_summary": _sow_summary(parsed_sow),
-                    "critique": critique,
-                    "revision": (parsed_sow.revision if parsed_sow else None),
-                    "diff": diff.model_dump(mode="json") if diff else None,
-                    "integrations": integrations or [],
-                    "cost": cost or {},
-                },
-                indent=2,
-                default=str,
-            ),
-            encoding="utf-8",
-        )
-        refs.append(_ref("report_json", path, "Run report (JSON)"))
-    except Exception as exc:
-        log.error("export.report_failed", error=str(exc))
+    _write(
+        refs, kind="report_json", kinds=kinds, target=target,
+        filename="run_report.json",
+        label="Run report (JSON)",
+        event="export.report_failed",
+        body=lambda: json.dumps(
+            {
+                "run_id": run_id,
+                "session_id": session_id,
+                "generated_at": datetime.utcnow().isoformat() + "Z",
+                "scope": scope,
+                "blueprint_summary": _blueprint_summary(parsed_blueprint),
+                "sow_summary": _sow_summary(parsed_sow),
+                "critique": critique,
+                "revision": (parsed_sow.revision if parsed_sow else None),
+                "diff": diff.model_dump(mode="json") if diff else None,
+                "integrations": integrations or [],
+                "cost": cost or {},
+            },
+            indent=2,
+            default=str,
+        ),
+    )
 
     log.info(
         "export.completed",

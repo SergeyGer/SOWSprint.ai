@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import html
 import tempfile
 import uuid
 from collections.abc import Iterator
@@ -25,7 +26,9 @@ import chainlit as cl
 from sowsprint.agents import RunOutcome, RunStatus, ScopingSession
 from sowsprint.agents.graph import describe_graph
 from sowsprint.config import Settings, get_settings
+from sowsprint.export.bundle import ARTIFACT_KINDS
 from sowsprint.llm import LLMError
+from sowsprint.models import CritiqueReport, TechnicalBlueprint
 from sowsprint.observability import configure_logging, get_logger
 from sowsprint.rag.pipeline import get_pipeline
 from sowsprint.security import Authenticator
@@ -89,6 +92,15 @@ STEP_TYPES: dict[str, str] = {
     "finalize": "run",
     "start": "run",
     "done": "run",
+}
+
+#: The artefacts a user can sensibly choose between.
+#:
+#: The quality audit and the run report are always produced: one is the evidence for the
+#: verdict and the other is the record of what happened, so offering to omit them would
+#: offer to leave no account of the run at all.
+_SELECTABLE_ARTIFACTS = {
+    "sow_markdown", "sow_pdf", "backlog_markdown", "jira_csv", "backlog_json",
 }
 
 STATUS_ICONS = {
@@ -527,6 +539,291 @@ async def _drive(
 # --------------------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------------------
+# Final report helpers
+#
+# The reader of a finished engagement has one question — did it pass? — and a second one
+# immediately after: what is the evidence? The previous layout answered neither first:
+# it opened with the run status, listed quantities, and only then mentioned the verdict,
+# so the thing that mattered was the fifth line down and phrased as one bullet among many.
+#
+# Everything below is ordered by those two questions.
+# --------------------------------------------------------------------------------------
+
+
+def _verdict_banner(critique: CritiqueReport | None, status: str) -> str:
+    """The result of the engagement, first and unmistakable.
+
+    Deliberately not a bullet in a list. A reader scanning the transcript after a long run
+    should not have to find the verdict — it should be the thing they see.
+    """
+    if critique is None:
+        return "\n".join([
+            f"# {STATUS_ICONS.get(status, '•')} NO AUDIT — `{status}`",
+            "",
+            "The run ended before the quality audit, so no verdict is available. "
+            "The artefacts below are drafts and have not been checked.",
+        ])
+
+    if getattr(critique, "degraded", False):
+        return "\n".join([
+            "# ⚠️ AUDIT DID NOT RUN",
+            "",
+            "**There is no verdict.** " + (critique.degradation_reason or ""),
+            "",
+            "Treat every number and finding below as unreliable and re-run. "
+            "The contract itself was drafted normally.",
+        ])
+
+    blocking = len(critique.blocking_findings)
+    advisory = len(critique.findings) - blocking
+    score = critique.quality_score
+    grounding = critique.grounding_ratio or 0.0
+
+    # What actually decided the verdict. The score is the lower of two things — the
+    # findings penalty and the grounding cap — and naming the wrong one sends the reader
+    # to fix something that is not the problem. A run with one advisory finding and a
+    # grounding ratio of 0.33 fails because a third of the contract is untraceable, not
+    # because of the finding; saying "advisory findings pushed the score down" would be
+    # false and would point at the wrong repair.
+    from sowsprint.models import ADVISORY_WEIGHT, BLOCKING_WEIGHT, MAX_ADVISORY_PENALTY
+
+    findings_score = 1.0 - BLOCKING_WEIGHT * blocking - min(
+        MAX_ADVISORY_PENALTY, ADVISORY_WEIGHT * advisory
+    )
+    grounding_cap = max(0.40, grounding)
+    grounding_decided = grounding_cap < findings_score - 0.005
+
+    if critique.passed:
+        headline = "# ✅ AUDIT PASSED"
+        if grounding_decided:
+            meaning = (
+                "The contract is ready. The findings list is clean, and the score is held "
+                "at the grounding level rather than by any defect."
+            )
+        else:
+            meaning = (
+                "The contract is ready. No blocking finding was raised, and the score "
+                "cleared the 0.72 bar."
+            )
+    else:
+        headline = "# ❌ AUDIT FAILED"
+        if blocking:
+            meaning = (
+                f"**{blocking} blocking finding{'' if blocking == 1 else 's'}** must be "
+                "resolved before this contract is safe to sign."
+            )
+        elif grounding_decided:
+            meaning = (
+                f"**The findings are not what failed this.** Only "
+                f"{grounding:.0%} of substantive clauses are traceable to retrieved "
+                f"compliance evidence, and that caps the score at {grounding_cap:.2f} — "
+                "below the 0.72 bar — however few findings were raised. Bind the remaining "
+                "clauses to retrieved passages, or treat this draft as unsupported."
+            )
+        else:
+            meaning = (
+                "No single finding blocks signature, but the accumulated advisory findings "
+                "pushed the score below the 0.72 bar."
+            )
+
+    # The score, and where it came from when the two definitions disagree.
+    if critique.raw_quality_score is not None and abs(
+        critique.raw_quality_score - score
+    ) > 0.01:
+        basis = (
+            f"derived from {len(critique.findings)} finding(s)"
+            + (f", capped by grounding at {grounding:.0%}" if grounding_decided else "")
+            + f" — the judge had proposed {critique.raw_quality_score:.2f}"
+        )
+    else:
+        basis = f"derived from {len(critique.findings)} finding(s)"
+
+    lines = [
+        headline,
+        "",
+        meaning,
+        "",
+        "| Score | Grounding | Blocking | Advisory |",
+        "| :-- | :-- | :-- | :-- |",
+        f"| **{score:.2f}** | {grounding:.0%} | {blocking} | {advisory} |",
+        "",
+        f"<sub>Score {basis}.</sub>",
+    ]
+
+    if critique.findings:
+        lines += ["", "**What the audit objected to**", ""]
+        order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+        for finding in sorted(
+            critique.findings, key=lambda f: order.get(f.severity.value, 9)
+        ):
+            mark = "🔴" if finding.is_blocking else "•"
+            lines.append(
+                f"- {mark} **{finding.severity.value} · {finding.category.value}** "
+                f"`{finding.location}` — {finding.description}"
+            )
+            if finding.remediation:
+                lines.append(f"  - *Fix:* {finding.remediation}")
+
+    return "\n".join(lines)
+
+
+def _model_line() -> str:
+    """Which model produced the documents, and which audited them.
+
+    Named because a contract is a work product: a reader has to be able to say what wrote
+    it. The two are usually different vendors on purpose — a model auditing its own output
+    is worse at catching its own mistakes — and seeing both makes that visible.
+    """
+    settings = _settings()
+    draft = settings.reasoning_model
+    judge = settings.critic_model or settings.reasoning_model
+    embed = settings.embedding_model
+
+    if settings.offline_mode:
+        return (
+            f"**Models:** deterministic offline engine (no model was called) · "
+            f"embeddings `{embed}`"
+        )
+    same = draft == judge and settings.critic_provider == settings.llm_provider
+    if same:
+        return f"**Model:** `{draft}` · embeddings `{embed}`"
+    return (
+        f"**Models:** `{draft}` drafted · `{judge}` audited "
+        f"(independent judge) · embeddings `{embed}`"
+    )
+
+
+def _gantt_html(blueprint: TechnicalBlueprint) -> str:
+    """The delivery plan as a timeline: milestones, duration, effort.
+
+    A summary rather than the plan itself. Every story, criterion and dependency is in the
+    downloadable files and on the tracker; repeating them here buries the shape of the
+    engagement — which is the one thing a chat transcript is good at showing.
+
+    Rendered as inline HTML because Chainlit does not render Mermaid, and a table of
+    proportional bars communicates sequence and relative size without a chart library.
+    """
+    milestones = blueprint.milestones or []
+    total = blueprint.estimated_duration_weeks or sum(
+        m.duration_weeks for m in milestones
+    ) or 1
+
+    palette = [
+        ("#34d399", "#065f46"),
+        ("#60a5fa", "#1e3a8a"),
+        ("#a78bfa", "#4c1d95"),
+        ("#fbbf24", "#78350f"),
+        ("#f472b6", "#831843"),
+    ]
+
+    rows, offset = [], 0
+    for index, milestone in enumerate(milestones):
+        weeks = milestone.duration_weeks or 0
+        points = sum(s.story_points or 0 for e in milestone.epics for s in e.stories)
+        stories = sum(len(e.stories) for e in milestone.epics)
+        width = (weeks / total * 100) if total else 0
+        left = (offset / total * 100) if total else 0
+        bar, _ = palette[index % len(palette)]
+        rows.append(
+            f'<tr>'
+            f'<td style="padding:5px 12px 5px 0;white-space:nowrap;font-size:13px">'
+            f'{html.escape(milestone.name)}</td>'
+            f'<td style="padding:5px 12px 5px 0;color:#94a3b8;font-size:12px;'
+            f'white-space:nowrap">{weeks} wk</td>'
+            f'<td style="padding:5px 12px 5px 0;color:#94a3b8;font-size:12px;'
+            f'white-space:nowrap">{stories} stories · {points} pts</td>'
+            f'<td style="width:100%;padding:5px 0">'
+            f'<div style="position:relative;height:16px;background:#1e293b;'
+            f'border-radius:8px;overflow:hidden">'
+            f'<div style="position:absolute;left:{left:.1f}%;width:{width:.1f}%;'
+            f'height:100%;background:{bar};border-radius:8px"></div></div></td>'
+            f'</tr>'
+        )
+        offset += weeks
+
+    header = (
+        f'<div style="color:#94a3b8;font-size:12px;margin-bottom:6px">'
+        f'{len(milestones)} milestone(s) over {total} weeks · '
+        f'{len((blueprint.milestones and [s for m in milestones for e in m.epics for s in e.stories]) or [])} '
+        f'stories · {blueprint.estimated_total_points} points</div>'
+    )
+    return (
+        header
+        + '<table style="border-collapse:collapse;width:100%;max-width:760px">'
+        + "".join(rows)
+        + "</table>"
+    )
+
+
+def _documents_block(outcome: RunOutcome) -> str:
+    """What was produced, in what format, and where it can be opened.
+
+    The formats matter to a reader in a way a file listing does not: PDF is for signing,
+    CSV is for importing into a tracker, JSON is for a downstream system, Markdown is for
+    review. Saying so turns a list of downloads into a decision.
+    """
+    if not outcome.artifacts:
+        return "_No documents were produced for this run._"
+
+    purpose = {
+        "sow_markdown": "review and diff",
+        "sow_pdf": "signing and circulation",
+        "backlog_markdown": "review",
+        "jira_csv": "import into any tracker",
+        "backlog_json": "downstream systems",
+        "audit_markdown": "evidence for the verdict above",
+        "report_json": "full run record",
+        "revision_markdown": "what changed between revisions",
+    }
+    lines = ["| Document | Format | Size | Use |", "| :-- | :-- | --: | :-- |"]
+    for artifact in outcome.artifacts:
+        path = Path(artifact.path)
+        label = artifact.label
+        if artifact.kind == "sow_pdf":
+            label = f"**{label}**"
+        lines.append(
+            f"| {label} | `{path.suffix.lstrip('.').upper()}` | "
+            f"{artifact.size_bytes / 1024:.0f} KB | {purpose.get(artifact.kind, '')} |"
+        )
+    return "\n".join(lines)
+
+
+def _plan_destinations(outcome: RunOutcome) -> list[str]:
+    """Where the plan can be opened, without repeating what is in it."""
+    links: list[str] = []
+
+    for integration in outcome.integrations or []:
+        for item in integration.get("created") or []:
+            url = str(item.get("url", ""))
+            if not url.startswith("http"):
+                continue
+            if "atlassian.net" in url:
+                key = item.get("key") or ""
+                # A project URL is more useful than an issue URL: the reader wants the
+                # whole board, not one story.
+                if key and "-" not in str(key):
+                    links.append(f"↗ [Open project **{key}** in Jira]({url})")
+                elif key:
+                    links.append(f"↗ [{key}]({url})")
+    if links:
+        board = [link for link in links if "Open project" in link]
+        return (board or links[:1]) + ([f"_{len(links)} item(s) created_"] if len(links) > 1 else [])
+    return []
+
+
+def _notion_link() -> str:
+    """Notion's own address, so a reader knows where to look."""
+    settings = _settings()
+    if not settings.notion_configured:
+        return ""
+    return (
+        "Documents are also written to **Notion** — open "
+        "[app.notion.com](https://app.notion.com/) and look in the page this integration "
+        "was connected to."
+    )
+
+
 async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
     """Render a run outcome: questions, approval prompt, or final deliverables."""
     icon = STATUS_ICONS.get(outcome.status, "•")
@@ -619,94 +916,95 @@ async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
         return
 
     # ------------------------------------------------------------------ terminal
-    lines = [f"{prefix}### {icon} Run finished — `{outcome.status}`", ""]
+    #
+    # Ordered by the two questions a reader has when a run ends: did it pass, and what is
+    # the evidence? The previous layout opened with the run status and mentioned the
+    # verdict fifth, as one bullet among many, which buried the only line that decides
+    # whether the work is usable.
+    lines = [
+        _verdict_banner(outcome.critique, outcome.status),
+        "",
+        _model_line(),
+        "",
+    ]
 
     if outcome.errors:
-        lines.append("**Errors**")
+        lines += ["**Errors during the run**", ""]
         lines += [f"- `{error}`" for error in outcome.errors]
         lines.append("")
 
     if outcome.halt_reason:
         lines += [f"> {outcome.halt_reason}", ""]
 
+    lines += ["---", "", "## Evidence for the verdict", ""]
+    lines += [
+        "The documents below are what the verdict is based on. They are the deliverable; "
+        "the audit above is the opinion about them.",
+        "",
+    ]
+
     if outcome.sow:
         lines += [
-            "**Statement of Work**",
+            f"**Statement of Work** — {outcome.sow.title}",
             "",
-            f"- Title: {outcome.sow.title}",
-            f"- Clauses: {len(outcome.sow.clauses)} ({outcome.sow.word_count():,} words)",
+            f"- {len(outcome.sow.clauses)} clauses, {outcome.sow.word_count():,} words",
             f"- Governing law: {outcome.sow.governing_law}",
-            f"- Payment milestones: {len(outcome.sow.payment_schedule)}",
-            f"- Retrieved-evidence links: {len(outcome.sow.retrieved_evidence_ids)}",
+            f"- {len(outcome.sow.retrieved_evidence_ids)} clause(s) traceable to retrieved "
+            "compliance evidence",
             "",
         ]
 
+    lines += ["### Documents produced", "", _documents_block(outcome), ""]
+
+    notion = _notion_link()
+    if notion:
+        lines += [notion, ""]
+
+    # ------------------------------------------------------------------ delivery plan
     if outcome.blueprint:
+        lines += ["---", "", "## Delivery plan", ""]
         lines += [
-            "**Delivery plan**",
-            "",
-            f"- Milestones: {len(outcome.blueprint.milestones)}",
-            f"- User stories: {len(outcome.blueprint.all_stories())}",
-            f"- Story points: {outcome.blueprint.estimated_total_points}",
-            f"- Duration: {outcome.blueprint.estimated_duration_weeks} weeks",
+            "The shape of the engagement at a glance. Every story, acceptance criterion "
+            "and dependency is in the downloadable files and on the tracker.",
             "",
         ]
+        lines.append(_gantt_html(outcome.blueprint))
+        lines.append("")
 
-    if outcome.critique and getattr(outcome.critique, "degraded", False):
-        # Say it before the numbers, not after: a reader who sees "Score 0.00" first
-        # concludes the contract is bad, when in fact the audit never ran.
-        lines += [
-            "> ⚠️ **This audit did not run properly.** "
-            + (outcome.critique.degradation_reason or ""),
-            "",
-            "> Treat the score and every finding below as unreliable, and re-run the "
-            "engagement. The contract itself was drafted normally.",
-            "",
-        ]
+        where = _plan_destinations(outcome)
+        if where:
+            lines += ["**Open it:** " + " · ".join(where), ""]
 
-    if outcome.critique:
-        lines += [
-            "**Quality audit**"
-            + (" *(degraded — see the warning above)*" if getattr(outcome.critique, "degraded", False) else ""),
-            "",
-            f"- Verdict: {'PASSED ✅' if outcome.critique.passed else 'FAILED ❌'}",
-            f"- Score: {outcome.critique.quality_score:.2f}",
-            f"- Grounding: {outcome.critique.grounding_ratio:.0%}",
-            f"- Findings: {len(outcome.critique.findings)}",
-            "",
-        ]
-        for finding in outcome.critique.findings[:5]:
-            lines.append(
-                f"  - `{finding.severity.value}` **{finding.category.value}** "
-                f"({finding.location}) — {finding.description}"
-            )
-        if outcome.critique.findings:
-            lines.append("")
-
+    # ------------------------------------------------------------------ retrieval
     if outcome.retrieval:
         lines += [
-            "**Compliance retrieval**",
+            "---",
+            "",
+            "<details><summary>Compliance retrieval detail</summary>",
             "",
             f"- Jurisdiction filter: `{outcome.retrieval.get('jurisdiction')}` "
-            "(enforced at the vector-engine query level)",
-            f"- Dense candidates: {outcome.retrieval.get('dense_candidates')}",
-            f"- Sparse (BM25) candidates: {outcome.retrieval.get('sparse_candidates')}",
-            f"- Fused → returned: {outcome.retrieval.get('fused_candidates')} → "
-            f"{outcome.retrieval.get('returned')}",
+            "(enforced inside the vector engine, not after it)",
+            f"- Dense candidates: {outcome.retrieval.get('dense_candidates')} · "
+            f"sparse (BM25): {outcome.retrieval.get('sparse_candidates')} · "
+            f"fused {outcome.retrieval.get('fused_candidates')} → "
+            f"returned {outcome.retrieval.get('returned')}",
             f"- Retrieval time: {outcome.retrieval.get('total_ms')} ms",
+            "",
+            "</details>",
             "",
         ]
 
+    # ------------------------------------------------------------------ destinations
     if outcome.integrations:
-        # Say plainly where the data went. The previous wording — "38 call(s) succeeded
-        # against jira+notion (dry-run)" — reads as success, and a reader reasonably
-        # concluded the backlog had been created when nothing had been sent anywhere.
-        lines += ["**Where the data went**", "", "| Destination | Result |", "| :-- | :-- |"]
+        # State plainly where the data went. "38 call(s) succeeded (dry-run)" reads as
+        # success, and a reader reasonably concluded the backlog had been created when
+        # nothing had been sent anywhere.
+        lines += ["---", "", "## Where the data went", "",
+                  "| Destination | Result |", "| :-- | :-- |"]
         any_dry = False
         for integration in outcome.integrations:
             target = str(integration.get("target") or "integration")
             dry = bool(integration.get("dry_run"))
-            summary = str(integration.get("summary") or "")
             created = integration.get("created") or []
             failed = integration.get("failed") or []
             if dry:
@@ -719,38 +1017,18 @@ async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
                 lines.append(f"| {target} | ❌ {len(created)} created, **{len(failed)} failed** |")
             else:
                 lines.append(f"| {target} | ✅ **{len(created)} item(s) created** |")
-            if summary:
-                lines.append(f"| | <sub>{summary}</sub> |")
         lines.append("")
 
         if any_dry:
             lines += [
                 "> **Nothing reached Jira or Notion.** Dry-run is on, so every call was "
-                "validated and thrown away. To provision the workspace for real, set "
-                "`SOWSPRINT_DRY_RUN_INTEGRATIONS=false` and run the engagement again.",
+                "validated and thrown away. Set `SOWSPRINT_DRY_RUN_INTEGRATIONS=false` and "
+                "run again to provision for real.",
                 "",
             ]
 
-        remote = [
-            item
-            for integration in outcome.integrations
-            for item in (integration.get("created") or [])
-            if str(item.get("url", "")).startswith("http")
-        ]
-        if remote and not any_dry:
-            lines += ["**Created in the cloud**", ""]
-            for item in remote[:12]:
-                label = item.get("key") or item.get("id") or item.get("tool")
-                lines.append(f"- [{label}]({item['url']})")
-            if len(remote) > 12:
-                lines.append(f"- … and {len(remote) - 12} more")
-            lines.append("")
-
-    if outcome.artifacts:
-        lines.append("**Deliverables** — attached below.")
-        lines.append("")
-
-    await cl.Message(content="\n".join(lines)).send()
+    with contextlib.suppress(Exception):
+        await cl.Message(content="\n".join(lines)).send()
 
     for artifact in outcome.artifacts:
         path = Path(artifact.path)
@@ -957,6 +1235,26 @@ async def on_chat_start() -> None:
                 initial=False,
                 description="Provision the tracker as soon as the audit passes.",
             ),
+            cl.input_widget.MultiSelect(
+                id="artifact_kinds",
+                label="Documents to produce",
+                initial=[],
+                items={
+                    kind: label
+                    for kind, label in ARTIFACT_KINDS.items()
+                    if kind in _SELECTABLE_ARTIFACTS
+                },
+                description=(
+                    "Leave empty to produce all of them. Deselecting a document saves "
+                    "rendering time and disk, NOT model tokens — the audit is roughly 70% "
+                    "of a run's cost and the drafting calls are most of the rest, so a "
+                    "shorter list does not buy a cheaper run. Choose the formats you will "
+                    "actually use: PDF to sign, CSV to import into a tracker, Markdown to "
+                    "review, JSON for a downstream system. The audit and the run report "
+                    "are always produced, because they are the evidence for the verdict "
+                    "and the record of the run."
+                ),
+            ),
         ]
     ).send()
 
@@ -972,6 +1270,8 @@ async def on_settings_update(settings: dict[str, Any]) -> None:
     cl.user_session.set("jurisdiction", jurisdiction)
     cl.user_session.set("auto_deploy", bool(settings.get("auto_deploy", False)))
     cl.user_session.set("dry_run_integrations", bool(settings.get("dry_run_integrations", True)))
+    chosen = list(settings.get("artifact_kinds") or [])
+    cl.user_session.set("artifact_kinds", chosen)
 
     budget = float(settings.get("session_budget_usd", _settings().session_budget_usd))
     existing = _session()
@@ -985,6 +1285,11 @@ async def on_settings_update(settings: dict[str, Any]) -> None:
             f"⚙️ Settings applied — {_chip(jurisdiction)}, "
             f"budget **${budget:.2f}**"
             + (", integrations **dry-run**" if settings.get("dry_run_integrations") else ", integrations **live**")
+            + (
+                ", all documents"
+                if not chosen
+                else f", {len(chosen)} document type(s)"
+            )
             + ("." if not settings.get("auto_deploy") else ", approval gate **skipped**.")
         )
     ).send()
@@ -1169,6 +1474,13 @@ async def _start_run(requirement: str) -> None:
         settings = settings.model_copy(
             update={"dry_run_integrations": bool(cl.user_session.get("dry_run_integrations"))}
         )
+
+    # The document selection lives in the user session and has to reach the exporter,
+    # which reads it from Settings. An empty selection means "all", which is also what an
+    # untouched widget means, so the two cannot be confused.
+    chosen = cl.user_session.get("artifact_kinds")
+    if chosen:
+        settings = settings.model_copy(update={"artifact_kinds": ",".join(chosen)})
 
     from sowsprint.telemetry import drop_ledger, get_ledger
 

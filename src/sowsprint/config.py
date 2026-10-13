@@ -175,7 +175,16 @@ class Settings(BaseSettings):
     chunk_size: int = 1100
     chunk_overlap: int = 150
 
-    default_jurisdiction: Literal["EU", "US", "BOTH"] = "EU"
+    default_jurisdiction: Literal["EU", "US", "BOTH"] = "US"
+
+    # Which deliverables to render. Comma-separated in the environment; empty means all.
+    #
+    # Worth being precise about what this saves: every artefact is rendered from objects
+    # already in memory, so deselecting one saves rendering time and disk, NOT model
+    # tokens. The audit is roughly 70% of a run's cost, and the drafting calls are the
+    # rest. A reader who unticks a PDF expecting a cheaper run would be misled, so the UI
+    # says so rather than implying otherwise.
+    artifact_kinds: str = ""
 
     # ---------------------------------------------------------------- guardrails
     max_critic_retries: int = 1
@@ -359,6 +368,27 @@ class Settings(BaseSettings):
         if not self.provider_is_usable(provider):
             return f"{provider.value} (no key - offline fallback)"
         return provider.value
+
+    @property
+    def enabled_artifacts(self) -> set[str] | None:
+        """The artefact kinds to render, or None for all of them."""
+        from .export.bundle import ARTIFACT_KINDS
+
+        wanted = {k.strip() for k in self.artifact_kinds.split(",") if k.strip()}
+        if not wanted:
+            return None
+        unknown = wanted - set(ARTIFACT_KINDS)
+        if unknown:
+            # Silently ignoring an unknown kind would look like a rendering failure, and
+            # the setting is usually edited by hand.
+            from .observability.logging import get_logger
+
+            get_logger(__name__).warning(
+                "config.unknown_artifact_kinds",
+                unknown=sorted(unknown),
+                known=sorted(ARTIFACT_KINDS),
+            )
+        return wanted & set(ARTIFACT_KINDS) or None
 
     def capability_matrix(self) -> dict[str, str]:
         """Human-readable summary of which adapter each subsystem resolved to.

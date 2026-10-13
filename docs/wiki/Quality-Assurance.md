@@ -77,9 +77,9 @@ disproven, and the repair loop was pointed at them.
 Refuted claims are now recorded separately as `dismissed`, where they remain visible as
 evidence about the judge without weighing on the verdict.
 
-## Guard 3 — recompute the verdict
+## Guard 3 — derive the verdict from the findings, always
 
-When anything is dismissed, the verdict *and* the score are recomputed from what survived:
+The verdict *and* the score are computed from the findings that survived verification:
 
 ```
 score = 1 - 0.30 × blocking - min(0.20, 0.05 × advisory)
@@ -88,6 +88,34 @@ score = 1 - 0.30 × blocking - min(0.20, 0.05 × advisory)
 Grounding then caps the result, so a clean findings list cannot hide weak substantiation.
 The formula is deliberately simple, because a score nobody can reconstruct is a score
 nobody can argue with.
+
+**Always, not only when something was dismissed.** The recomputation used to run only if a
+finding had been refuted, so a judge that was merely generous kept its own number: one live
+run reported `0.78` beside "1 high, 3 medium, 2 low" where the formula gives `0.50` — two
+definitions of quality for one set of findings. Both agreed on FAILED that time, which is
+why it survived, but the disagreement becomes a wrong verdict the moment a threshold moves.
+
+The judge's own number is kept as `raw_quality_score` and shown beside the derived one,
+because the gap is informative. The derived score is what the verdict rests on; the judge's
+is what a holistic reading of the same document produced.
+
+### Which of the two decided the outcome
+
+The score is the lower of the findings penalty and the grounding cap, and the two call for
+different repairs. Naming the wrong one sends a reader to fix something that is not the
+problem, so the verdict says which applied:
+
+| Situation | What the verdict says |
+| :-- | :-- |
+| A blocking finding | Names the finding; the grounding cap is irrelevant |
+| Advisory findings only, score under the bar | The accumulated findings pushed it under |
+| The grounding cap is below the findings score | **"The findings are not what failed this"**, naming the grounding ratio |
+
+That third case is real and was hidden before. One live run reported a single medium
+finding, a grounding ratio of 33%, and a judge score of 0.88 — the judge's own summary
+called it "no blocking defects" while acknowledging that two thirds of the clauses cite
+nothing. The findings score is 0.95, the grounding cap is 0.40, and the run fails. It
+should: most of that contract is not traceable to anything.
 
 ## Guard 4 — detect a judge that did not really run
 

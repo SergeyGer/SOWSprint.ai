@@ -138,7 +138,7 @@ with st.sidebar:
     st.divider()
     jurisdiction = st.radio(
         "Compliance regime",
-        options=["EU", "US", "BOTH"],
+        options=["US", "EU", "BOTH"],
         index=0,
         help=(
             "EU — GDPR and the EU AI Act. US — SEC, Delaware and CCPA. "
