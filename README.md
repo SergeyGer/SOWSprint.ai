@@ -25,10 +25,14 @@ contract together with the delivery plan to execute it.
 
 **[📖 Engineering & product wiki →](https://github.com/SergeyGer/SOWSprint.ai/wiki)**
 
-<img src="docs/images/demo.gif" alt="A complete engagement: brief in, contract out — agent trace, quality audit, cost dashboard and deliverables" width="820">
+**[▶ Watch a full engagement](docs/media/demo.mp4)** — 2:47, from a dictated brief to a
+provisioned Jira project. The thinking pauses are cut; nothing else is.
 
-<sub>A complete engagement, sped up. Brief in → agent trace → compliance audit → human
-approval → Jira and Notion provisioned → deliverables.</sub>
+<a href="docs/media/demo.mp4"><img src="docs/media/03-transcribed.png" alt="A brief dictated by voice, transcribed, and the scope extracted from it" width="820"></a>
+
+<sub>The brief is **spoken**, not typed: the microphone records it, Whisper transcribes it, and
+Triage extracts the scope and the regulatory triggers from what it heard. Then the contract is
+drafted, audited, approved by a human, and provisioned.</sub>
 
 </div>
 
@@ -180,29 +184,62 @@ A reader in a hurry would not catch that. The audit did.
 
 ## See it working
 
-### The approval gate — nothing happens without a human
-
-<img src="docs/images/04-quality-audit.png" alt="Agent step trace with a passing quality audit and the planned Jira and Notion calls awaiting approval" width="780">
-
-The 27 planned calls are listed so the reviewer knows exactly what approving means.
-
-### Cost, latency and efficiency, live
-
-<img src="docs/images/06-dashboard-cost.png" alt="Session cost dashboard showing spend, token split, per-agent breakdown and prompt-cache savings" width="780">
-
-Every model call is priced as it happens and attributed to the agent that made it. The audit
-costs more than the drafting — deliberately, because a false positive in the audit costs a
-full contract rewrite.
-
-### Mobile, because briefs arrive on phones
+### A brief arrives by voice
 
 <p>
-<img src="docs/images/07-mobile.png" alt="The application on a phone viewport" width="300">
+<img src="docs/media/02-recording.png" alt="Recording a spoken brief in the browser" width="400">
+<img src="docs/media/03-transcribed.png" alt="The transcribed brief and the scope extracted from it" width="400">
 </p>
 
-Voice capture, the jurisdiction switch and the full transcript work at 390px wide.
+The microphone is real, and the transcript is Whisper's. Triage reads it and finds the
+regulatory triggers in speech: GDPR, the EU AI Act, German BDSG, Irish law.
 
----
+### The verdict comes first
+
+<img src="docs/media/08-verdict.png" alt="The audit verdict stated as a heading before anything else" width="820">
+
+A finished engagement answers one question before any other: did it pass. The verdict is a
+heading, with the score, the grounding ratio and the findings that produced it. When the
+grounding cap decided the outcome rather than the findings, it says that instead — the two
+call for different repairs.
+
+### The approval gate
+
+<img src="docs/media/05-approval-gate.png" alt="The approval gate showing the project schedule and what will be created" width="820">
+
+Nothing reaches Jira or Notion without a human. The gate states the schedule — start, planned
+finish, duration — the roles the plan needs, and what will exist afterwards. It does not list
+API calls; those are the pipeline's vocabulary, not the reader's.
+
+### The plan at a glance
+
+<img src="docs/media/09-gantt.png" alt="Milestone timeline with duration and effort per milestone" width="820">
+
+Milestones with duration and effort, drawn from the start date. Every story, acceptance
+criterion and dependency stays in the downloadable files and on the tracker.
+
+### The workspace, created
+
+<img src="docs/media/jira-issues.png" alt="The provisioned Jira project: 27 issues with priorities, epics and due dates" width="820">
+
+Every run provisions its **own** Jira project — 27 issues here, epics and stories with
+priorities and a due date on each, taken from the milestone schedule. Nothing is added to an
+existing project, so two engagements stay comparable.
+
+<img src="docs/media/notion-page.png" alt="The Notion engagement summary: milestones, open items and assumptions" width="820">
+
+<sub>The Notion page, rendered from the Notion API — its web interface needs an interactive
+sign-in, so this is the content Notion is serving rather than a screenshot of the app around
+it. Milestones, the open items that must be settled before signature, and the assumptions the
+draft rests on.</sub>
+
+### Every document, and what each is for
+
+<img src="docs/media/10-documents.png" alt="The document table: name, format, size and intended use" width="820">
+
+The format column matters in a way a file listing does not: PDF to sign, CSV to import into a
+tracker, JSON for a downstream system, Markdown to review. Deselecting one saves rendering time
+and disk, not model tokens — and the interface says so.
 
 ## Try it
 

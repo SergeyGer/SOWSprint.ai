@@ -140,26 +140,41 @@ def main() -> int:
         tl.mark("brief_sent")
 
         # ---------------------------------------------------------------- the run
+        # Triage may ask more than once. On a capable model it asks sharper questions and
+        # often asks a second round after the first answers narrow the scope — so the loop
+        # answers whatever it is asked rather than assuming one round is all there is.
+        answers = [
+            "Aggregate operational metrics only, no individual employee tracking. "
+            "Acceptance is 40% faster monthly close and adoption by 150 of the 200 staff.",
+            "No automated decision-making — descriptive and predictive analytics for human "
+            "review only, no decisions taken about individuals. The vendor provides and "
+            "manages the production infrastructure; hosting and database licences are "
+            "included in the fixed price.",
+            "Fixed price per milestone, invoiced on acceptance. No other constraints.",
+            "Confirmed. Proceed on those terms.",
+            "Yes, that is correct. Please proceed with the draft.",
+            "Agreed on all points. Draft the contract now.",
+        ]
         gate = False
-        clarifications = 0
-        for _ in range(40):
+        answered = 0
+        for _ in range(120):
             page.wait_for_timeout(10_000)
             body = page.inner_text("body")
-            if "Three questions" in body and clarifications == 0:
-                clarifications += 1
-                tl.mark("clarification_asked")
-                shot(page, "04-clarification")
+            # Count occurrences, not presence. The earlier question block stays in the
+            # transcript after it is answered, so a presence check fires again on every
+            # poll and the script answers the same round four times over.
+            asked = body.count("before I can draft")
+            if asked > answered and answered < len(answers):
+                tl.mark("clarification_asked", round=answered + 1)
+                shot(page, f"04-clarification-{answered + 1}")
                 box = page.locator("textarea").first
-                box.fill(
-                    "Aggregate operational metrics only, no individual employee tracking. "
-                    "Acceptance is 40% faster monthly close and adoption by 150 of the 200 "
-                    "warehouse staff. No other constraints."
-                )
+                box.fill(answers[answered])
                 page.keyboard.press("Enter")
-                tl.mark("clarification_answered")
+                answered += 1
+                tl.mark("clarification_answered", round=answered)
             if "approval required" in body:
                 gate = True
-                tl.mark("approval_gate")
+                tl.mark("approval_gate", clarifications=answered)
                 shot(page, "05-approval-gate")
                 break
 
@@ -178,7 +193,7 @@ def main() -> int:
         tl.mark("approved")
 
         done = False
-        for _ in range(40):
+        for _ in range(90):
             page.wait_for_timeout(10_000)
             body = page.inner_text("body")
             if "Where the data went" in body:

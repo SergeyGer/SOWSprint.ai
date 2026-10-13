@@ -130,6 +130,25 @@ class AnthropicClient(BaseLLMClient):
             }
         ]
 
+    def _stream(self, **request: Any) -> Any:
+        """Run the request as a stream and return a response-shaped object.
+
+        Long requests are cut off when they are not streamed. A drafting call over a full
+        blueprint and a dozen retrieved passages takes minutes on a capable model, and
+        Anthropic's own error documentation points at exactly this:
+
+            Request timed out or interrupted. ... See /api/errors#long-requests
+
+        The cut happens on the server or at a proxy and is not affected by the client's
+        timeout — raising `SOWSPRINT_REQUEST_TIMEOUT_S` to 420 seconds changed nothing,
+        which is what identified it. Streaming keeps the connection producing bytes, so
+        nothing decides the request has stalled. The accumulated message is identical to
+        the non-streaming one, and `usage` is taken from the final message event.
+        """
+        with self._client.messages.stream(**request) as stream:
+            return stream.get_final_message()
+
+
     def _invoke(
         self,
         messages: Sequence[Message],
@@ -165,7 +184,7 @@ class AnthropicClient(BaseLLMClient):
             request["temperature"] = temperature
 
         try:
-            response = self._client.messages.create(**request)
+            response = self._stream(**request)
         except Exception as exc:
             # Newer Claude releases deprecate `temperature` in favour of adaptive
             # thinking, and the set of such models grows with every release. Rather
@@ -175,7 +194,7 @@ class AnthropicClient(BaseLLMClient):
                 log.info("anthropic.temperature_unsupported", model=model, node=node)
                 remember_temperature_rejection(model)
                 request.pop("temperature")
-                response = self._client.messages.create(**request)
+                response = self._stream(**request)
             else:
                 raise
 

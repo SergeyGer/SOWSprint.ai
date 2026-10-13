@@ -956,6 +956,23 @@ def test_partial_configuration_is_reported_per_tier():
     assert "no key" in matrix["critic"]
 
 
+
+class _FakeStream:
+    """Stands in for the context manager ``messages.stream`` returns."""
+
+    def __init__(self, message: object) -> None:
+        self._message = message
+
+    def __enter__(self) -> _FakeStream:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def get_final_message(self) -> object:
+        return self._message
+
+
 class TestAnthropicRequestShape:
     """The request must omit `system` rather than send it as null.
 
@@ -981,11 +998,11 @@ class TestAnthropicRequestShape:
                 self.content = [SimpleNamespace(type="text", text="ok")]
                 self.usage = SimpleNamespace(input_tokens=1, output_tokens=1)
 
-        def fake_create(**kwargs):
+        def fake_stream(**kwargs):
             seen.update(kwargs)
-            return _Response()
+            return _FakeStream(_Response())
 
-        monkeypatch.setattr(client._client.messages, "create", fake_create)
+        monkeypatch.setattr(client._client.messages, "stream", fake_stream)
         client.complete(messages, max_tokens=16, node="test")
         return seen
 
@@ -1043,6 +1060,12 @@ class TestAnthropicParameterCompatibility:
         calls: list[dict] = []
 
         class FakeMessages:
+            # The adapter streams: long non-streaming requests are cut server-side, which
+            # a 420-second client timeout did not prevent. The fake offers the entry point
+            # the code now uses.
+            def stream(self, **kwargs):
+                return _FakeStream(self.create(**kwargs))
+
             def create(self, **kwargs):
                 calls.append(dict(kwargs))
                 if "temperature" in kwargs:
