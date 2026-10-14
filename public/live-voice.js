@@ -1,31 +1,44 @@
 /*
- * Mirror the live voice transcript into the composer.
+ * Voice capture state, mirrored into the composer.
  *
- * Chainlit has no server-to-client API for setting the input's text: `window_message` is
- * client-to-server only, and the socket handlers expose nothing in the other direction. The
- * frontend is a compiled bundle in the wheel, so there is nothing on the client to call
- * either. What the server *can* do is render HTML, and `unsafe_allow_html` is already on for
- * the cost dashboard — so the transcript is delivered as a hidden element's data attribute
- * and moved into the textarea here.
+ * The server renders one panel with `data-state` of `idle`, `recording` or `review`, and
+ * this script is the other half of that contract:
  *
- * The textarea is `#chat-input`. It is a controlled React input, so assigning `.value`
- * alone leaves React's own state stale and the next keystroke or re-render restores the old
- * text. The native setter is used instead, then an `input` event is dispatched, which is what
- * React listens for. That is the difference between text that appears and text that stays.
+ *   recording — the words arriving are mirrored into the message box as they are spoken
+ *   review    — the finished transcript is placed in the box and left there for checking
+ *   anything else — the box is left alone, and a previous transcript is not restored
  *
- * While recording, the field is treated as read-only for the speaker: their own words are the
- * content, and typing over a transcription that is still arriving is a losing race.
+ * That last line is the fix for a real bug. The panel used to be identified by a fixed id
+ * and every recording left its panel in the transcript, so `getElementById` returned the
+ * OLDEST one: the first brief ever spoken. Every later recording re-displayed it, and the
+ * speaker saw words they had not just said. Only the live panel is read now, and only while
+ * it says it is live.
+ *
+ * Chainlit has no server-to-client API for the composer — `window_message` is
+ * client-to-server, the socket handlers expose nothing the other way, and the frontend is a
+ * compiled bundle in the wheel. The server can render HTML, and `unsafe_allow_html` is
+ * already on for the cost dashboard, so the text travels in a data attribute and lands here.
+ *
+ * The textarea is a controlled React input: assigning `.value` leaves React's state stale
+ * and the next keystroke restores the old text. The native setter is called instead, then an
+ * `input` event is dispatched, which is what React listens for.
  */
 (function () {
   "use strict";
 
-  const MARKER_ID = "sowsprint-live-transcript";
+  const PANEL_ID = "sowsprint-voice";
   const INPUT_ID = "chat-input";
+  const BODY_FLAG = "sowsprint-recording";
+
+  let appliedFor = null;
+
+  function panel() {
+    return document.getElementById(PANEL_ID);
+  }
 
   function setComposer(text) {
     const input = document.getElementById(INPUT_ID);
-    if (!input) return;
-    if (input.value === text) return;
+    if (!input || input.value === text) return;
 
     const descriptor = Object.getOwnPropertyDescriptor(
       window.HTMLTextAreaElement.prototype,
@@ -40,29 +53,57 @@
     input.scrollTop = input.scrollHeight;
   }
 
-  function currentTranscript() {
-    const marker = document.getElementById(MARKER_ID);
-    if (!marker) return null;
-    return marker.getAttribute("data-text") || "";
+  function indicator(state) {
+    // A class on <body> drives the global banner in custom.css, so the state is visible even
+    // when the panel has scrolled out of view — which on a phone it usually has.
+    const banner = document.getElementById("sowsprint-voice-banner");
+    if (state === "recording") {
+      document.body.classList.add(BODY_FLAG);
+      if (!banner) {
+        const el = document.createElement("div");
+        el.id = "sowsprint-voice-banner";
+        el.setAttribute("role", "status");
+        el.setAttribute("aria-live", "polite");
+        el.innerHTML = '<span class="voice-dot"></span> Recording — tap the microphone to stop';
+        document.body.appendChild(el);
+      }
+    } else {
+      document.body.classList.remove(BODY_FLAG);
+      if (banner) banner.remove();
+    }
   }
 
-  let lastSeen = null;
-
   function sync() {
-    const text = currentTranscript();
-    if (text === null || text === lastSeen) return;
-    lastSeen = text;
+    const el = panel();
+
+    if (!el) {
+      indicator(null);
+      // The panel is gone: the recording was sent or discarded. Drop the text the field was
+      // carrying, but only if this script put it there — never wipe something typed by hand.
+      if (appliedFor !== null) {
+        appliedFor = null;
+        const input = document.getElementById(INPUT_ID);
+        if (input && input.value !== "") setComposer("");
+      }
+      return;
+    }
+
+    const state = el.getAttribute("data-state") || "";
+    indicator(state);
+    if (state !== "recording" && state !== "review") return;
+
+    const text = el.getAttribute("data-text") || "";
+    if (text === appliedFor) return;
+    appliedFor = text;
     setComposer(text);
   }
 
-  // The transcript element is re-rendered as the message updates, so the observer watches
-  // the whole document rather than the node it first saw.
   const observer = new MutationObserver(sync);
   observer.observe(document.documentElement, {
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ["data-text"],
+    attributeFilter: ["data-text", "data-state"],
   });
-  setInterval(sync, 500);
+  setInterval(sync, 400);
 })();

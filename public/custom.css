@@ -136,3 +136,80 @@ body,
     color: #000 !important;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Voice capture state
+ * ---------------------------------------------------------------------------
+ * Whether the microphone is live has to be obvious at a glance, on a phone as much as on a
+ * desktop. The panel states it in words and the banner keeps saying it after the panel has
+ * scrolled away, which on a 390px viewport is immediately.
+ */
+
+.voice-dot {
+  display: inline-block;
+  width: 0.6em;
+  height: 0.6em;
+  margin-right: 0.45em;
+  border-radius: 50%;
+  background: #dc2626;
+  vertical-align: middle;
+  animation: sow-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes sow-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.82); }
+}
+
+/* Respect a stated preference for less motion: the dot still marks the state, it just
+   stops pulsing. */
+@media (prefers-reduced-motion: reduce) {
+  .voice-dot { animation: none; }
+}
+
+#sowsprint-voice-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  padding: 0.55rem 0.9rem;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.86rem;
+  font-weight: 500;
+  text-align: center;
+  box-shadow: 0 1px 8px rgb(0 0 0 / 0.28);
+}
+
+#sowsprint-voice-banner .voice-dot { background: #fff; }
+
+/* The banner is fixed, so the application is moved down rather than covered.
+ *
+ * Padding on <body> did nothing: the layout inside #root is `h-screen`, so it kept its full
+ * height and the header simply sat under the banner — "Listening" and the readme link were
+ * sliced through. The root is padded and the inner viewport height reduced by the same
+ * amount, which moves everything down without introducing a scrollbar. */
+body.sowsprint-recording { --sow-banner: 2.5rem; }
+body.sowsprint-recording #root {
+  padding-top: var(--sow-banner);
+  box-sizing: border-box;
+}
+body.sowsprint-recording #root .h-screen {
+  height: calc(100vh - var(--sow-banner));
+}
+
+.voice-review {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border-left: 3px solid var(--sow-accent, #2563eb);
+  background: rgb(37 99 235 / 0.07);
+  border-radius: 0 4px 4px 0;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+@media (max-width: 480px) {
+  #sowsprint-voice-banner { font-size: 0.8rem; padding: 0.5rem 0.6rem; }
+  body.sowsprint-recording { --sow-banner: 2.3rem; }
+}

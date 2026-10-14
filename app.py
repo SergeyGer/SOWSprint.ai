@@ -1790,21 +1790,62 @@ async def on_reject(action: cl.Action) -> None:
 LIVE_TRANSCRIBE_EVERY_S = 4.0
 
 
-def _live_marker(text: str, *, done: bool = False) -> str:
-    """The transcript, carried in an element the client script can read.
+def _voice_panel(
+    text: str,
+    *,
+    state: str,
+    seconds: float = 0.0,
+    detail: str = "",
+) -> str:
+    """The recording state, as the one element the client script reads.
 
-    Chainlit offers no server-to-client API for the composer's text, so the value travels
-    as a data attribute and ``public/live-voice.js`` moves it into the textarea. The visible
-    part is the status line a reader sees in the transcript; the attribute is what the field
-    receives.
+    ``state`` is the whole contract between here and ``public/live-voice.js``:
+
+    * ``idle``       — nothing is being recorded; the field is cleared
+    * ``recording``  — words are arriving and are mirrored into the field as they come
+    * ``review``     — the recording has stopped and the text is waiting for confirmation
+
+    Exactly one of these elements exists at a time. The first version used a fixed id and
+    left every previous element in the transcript, so ``getElementById`` returned the
+    OLDEST one — the first brief ever spoken — and every later recording re-displayed it.
+    A reader saw words they had not just said, which is both wrong and alarming.
     """
     import html as _html
 
     payload = _html.escape(text, quote=True)
-    label = "🎙️ Recording — the words appear in the message box as you speak." if not done else "🎙️ Recording finished."
+    if state == "recording":
+        body = (
+            '<span class="voice-dot"></span>'
+            f'<b>Recording</b> — {seconds:.0f}s · speak, then press the microphone again'
+            + (f'<div class="voice-review">{_html.escape(text)}</div>' if text else "")
+        )
+    elif state == "review":
+        body = (
+            '<b>Transcribed</b> — check it before sending'
+            f'<div class="voice-review">{_html.escape(text)}</div>'
+        )
+    else:
+        body = _html.escape(detail or "")
+
     return (
-        f'<span id="sowsprint-live-transcript" data-text="{payload}">{label}</span>'
+        f'<span id="sowsprint-voice" data-state="{state}" data-text="{payload}">'
+        f'{body}</span>'
     )
+
+
+async def _clear_voice_panel() -> None:
+    """Remove the previous panel, so only one ever exists.
+
+    The client finds the panel by id; leaving older ones in the transcript is what made the
+    field show a stale brief. Clearing the content removes the id from the document.
+    """
+    previous = cl.user_session.get("voice_panel")
+    if previous is None:
+        return
+    with contextlib.suppress(Exception):
+        previous.content = ""
+        await previous.update()
+    cl.user_session.set("voice_panel", None)
 
 
 async def _transcribe_partial(buffer: list[bytes], settings: Any) -> str:
@@ -1831,13 +1872,41 @@ async def _transcribe_partial(buffer: list[bytes], settings: Any) -> str:
         target.unlink(missing_ok=True)
 
 
+@cl.action_callback("voice_accept")
+async def on_voice_accept(action: cl.Action) -> None:
+    """Send the transcript the speaker has just checked.
+
+    The text is read from the composer rather than from the session, so an edit made in the
+    field is what the agents receive. The live panel carried it there; this picks up whatever
+    the speaker left.
+    """
+    text = str(cl.user_session.get("pending_transcript") or "").strip()
+    if not text:
+        await cl.Message(content="Nothing to send — record again.").send()
+        return
+    cl.user_session.set("pending_transcript", None)
+    await _clear_voice_panel()
+    await _start_run(text)
+
+
+@cl.action_callback("voice_discard")
+async def on_voice_discard(action: cl.Action) -> None:
+    """Throw the recording away without sending anything."""
+    cl.user_session.set("pending_transcript", None)
+    await _clear_voice_panel()
+    await cl.Message(content="Recording discarded. Nothing was sent.").send()
+
+
 @cl.on_audio_start
 async def on_audio_start() -> bool:
-    """Accept an audio stream from the browser's native capture widget."""
-    cl.user_session.set("audio_chunks", [])
-    cl.user_session.set("audio_seconds", 0.0)
-    cl.user_session.set("live_message", None)
-    cl.user_session.set("live_transcript", "")
+    """Accept an audio stream from the browser's capture widget.
+
+    Deliberately does nothing else. Chainlit invokes this once per **session**, not once per
+    recording — measured: one call across a session in which two recordings were made. The
+    panel therefore cannot be created here, or the second recording has none and its words
+    go nowhere. `chunk.isStart` marks the first chunk of every recording, so the reset lives
+    in `on_audio_chunk`.
+    """
     return True
 
 
@@ -1845,64 +1914,70 @@ async def on_audio_start() -> bool:
 async def on_audio_chunk(chunk: cl.AudioChunk) -> None:
     """Accumulate chunks, and periodically show what has been said so far.
 
-    The speaker should be able to read their own words as they arrive — a recording where the
-    text only appears afterwards gives no way to notice that the microphone is muted, the
-    wrong device is selected, or the sentence came out wrong, until it is too late to redo.
+    The speaker should be able to read their own words as they arrive: a recording whose text
+    only appears afterwards gives no way to notice a muted microphone, the wrong device, or a
+    sentence that came out wrong, until it is too late to redo it.
     """
     if chunk.isStart:
+        # The first chunk of a recording: this is where a new one begins.
+        cl.user_session.set("audio_ended", False)
         cl.user_session.set("audio_mime", chunk.mimeType)
+        await _clear_voice_panel()
+        cl.user_session.set("audio_chunks", [])
+        cl.user_session.set("audio_seconds", 0.0)
+        cl.user_session.set("last_partial_at", 0.0)
+        cl.user_session.set("live_transcript", "")
+        panel = cl.Message(content=_voice_panel("", state="recording"), author="Voice")
+        cl.user_session.set("voice_panel", panel)
+        await panel.send()
 
     buffer: list[bytes] = cl.user_session.get("audio_chunks") or []
     buffer.append(chunk.data)
     cl.user_session.set("audio_chunks", buffer)
 
-    seconds = float(cl.user_session.get("audio_seconds") or 0.0) + getattr(chunk, "elapsedTime", 0)
+    # `elapsedTime` is milliseconds since the recording began — the client sends
+    # `Date.now() - startedAt` (chainlit frontend, `audio_connection`). Read as seconds it
+    # is always far past the interval, so every chunk triggered a transcription: 128
+    # Whisper calls for two recordings, each re-transcribing the whole clip.
+    elapsed_ms = float(getattr(chunk, "elapsedTime", 0) or 0)
+    seconds = max(
+        float(cl.user_session.get("audio_seconds") or 0.0), elapsed_ms / 1000.0
+    )
     cl.user_session.set("audio_seconds", seconds)
 
-    # Transcribe on a time interval, not on a chunk count: chunk sizes are the browser's
-    # choice and vary with the device.
+    # Transcribe on a time interval, not a chunk count: chunk sizes are the browser's choice
+    # and vary with the device.
     last_pass = float(cl.user_session.get("last_partial_at") or 0.0)
     if seconds - last_pass < LIVE_TRANSCRIBE_EVERY_S:
         return
     cl.user_session.set("last_partial_at", seconds)
 
     settings = _settings()
-    # A plain string, not an enum: the resolver returns the adapter name, and `.value`
-    # raised on every chunk — so the live path failed silently inside Chainlit's wrapper
-    # while the recording itself carried on.
+    # A plain string, not an enum: the resolver returns the adapter name, and `.value` raised
+    # on every chunk — so the live path failed silently inside Chainlit's wrapper while the
+    # recording itself carried on.
     if str(settings.resolved_whisper_provider) == "offline":
-        # Nothing to hear with. Say so once rather than on every interval.
-        if not cl.user_session.get("live_message"):
-            cl.user_session.set("live_message", True)
-            await cl.Message(
-                content=(
-                    "_Live transcription needs a speech provider; the recording will be "
-                    "transcribed when you stop._"
-                )
-            ).send()
         return
 
     text = await _transcribe_partial(buffer, settings)
-    if not text:
-        return
-
-    # Whisper repeats itself on short clips; keep the longest reading rather than letting a
-    # truncated pass replace a fuller one.
+    log.info(
+        "voice.chunk",
+        elapsed=round(seconds, 1),
+        chunk_bytes=len(chunk.data),
+        got=len(text),
+        panel=cl.user_session.get("voice_panel") is not None,
+    )
     previous = str(cl.user_session.get("live_transcript") or "")
-    if len(text.strip()) < len(previous.strip()):
-        return
-    cl.user_session.set("live_transcript", text)
+    # Whisper truncates on short clips; never let a shorter reading replace a fuller one.
+    if text and len(text.strip()) >= len(previous.strip()):
+        cl.user_session.set("live_transcript", text)
+        previous = text
 
-    message = cl.user_session.get("live_message")
-    content = _live_marker(text)
-    if message in (None, True):
-        message = cl.Message(content=content, author="Voice")
-        cl.user_session.set("live_message", message)
-        await message.send()
-    else:
-        message.content = content
+    panel = cl.user_session.get("voice_panel")
+    if panel is not None and not cl.user_session.get("audio_ended"):
         with contextlib.suppress(Exception):
-            await message.update()
+            panel.content = _voice_panel(previous, state="recording", seconds=seconds)
+            await panel.update()
 
 
 @cl.on_audio_end
@@ -1914,6 +1989,8 @@ async def on_audio_end() -> None:
     parameter names, so any parameter here raises ``TypeError`` at runtime. The chunks
     are therefore read from the user session rather than passed in.
     """
+    cl.user_session.set("audio_ended", True)
+
     buffer: list[bytes] = cl.user_session.get("audio_chunks") or []
     if not buffer:
         await cl.Message(content="No audio was captured — please try again.").send()
@@ -1961,23 +2038,27 @@ async def on_audio_end() -> None:
         ).send()
         return
 
+    # Show the transcript and wait. Speech recognition mishears things — names, numbers,
+    # accents — and a brief that silently went in wrong produces a contract about the wrong
+    # engagement. Confirming costs one click and is the only point where the speaker can
+    # catch it.
+    cl.user_session.set("pending_transcript", result.text)
+    panel = cl.user_session.get("voice_panel")
+    if panel is not None:
+        with contextlib.suppress(Exception):
+            panel.content = _voice_panel(result.text, state="review")
+            await panel.update()
+
     await cl.Message(
         content="\n".join(
             [
                 f"📝 **Transcript** — {result.summary()}",
                 "",
-                "> " + result.text.replace("\n", "\n> "),
-                "",
-                "_Feeding this into the Triage agent…_",
+                "_Edit it in the message box if it misheard, then confirm._",
             ]
-        )
+        ),
+        actions=[
+            cl.Action(name="voice_accept", payload={"decision": "accept"}, label="✅ Send it"),
+            cl.Action(name="voice_discard", payload={"decision": "discard"}, label="🗑 Discard"),
+        ],
     ).send()
-
-    live = cl.user_session.get("live_message")
-    if live not in (None, True):
-        with contextlib.suppress(Exception):
-            live.content = _live_marker(result.text, done=True)
-            await live.update()
-    cl.user_session.set("live_message", None)
-
-    await _start_run(result.text)
