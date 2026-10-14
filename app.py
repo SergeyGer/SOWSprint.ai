@@ -1115,8 +1115,10 @@ async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
 
     lines += ["---", "", "## Evidence for the verdict", ""]
     lines += [
-        "The documents below are what the verdict is based on. They are the deliverable; "
-        "the audit above is the opinion about them.",
+        (
+            "The documents below are what the verdict is based on. They are the deliverable; "
+            "the audit above is the opinion about them."
+        ),
         "",
     ]
 
@@ -1141,8 +1143,10 @@ async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
     if outcome.blueprint:
         lines += ["---", "", "## Delivery plan", ""]
         lines += [
-            "The shape of the engagement at a glance. Every story, acceptance criterion "
-            "and dependency is in the downloadable files and on the tracker.",
+            (
+                "The shape of the engagement at a glance. Every story, acceptance criterion "
+                "and dependency is in the downloadable files and on the tracker."
+            ),
             "",
         ]
         lines.append(_gantt_html(outcome.blueprint))
@@ -1181,9 +1185,11 @@ async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
 
         if any_dry:
             lines += [
-                "> **Nothing reached Jira or Notion.** Dry-run is on, so every call was "
-                "validated and thrown away. Set `SOWSPRINT_DRY_RUN_INTEGRATIONS=false` and "
-                "run again to provision for real.",
+                (
+                    "> **Nothing reached Jira or Notion.** Dry-run is on, so every call was "
+                    "validated and thrown away. Set `SOWSPRINT_DRY_RUN_INTEGRATIONS=false` "
+                    "and run again to provision for real."
+                ),
                 "",
             ]
 
