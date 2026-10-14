@@ -99,6 +99,33 @@ The judge's own number is kept as `raw_quality_score` and shown beside the deriv
 because the gap is informative. The derived score is what the verdict rests on; the judge's
 is what a holistic reading of the same document produced.
 
+### Grounding is counted, not estimated
+
+The cap is only as trustworthy as the number under it, and that number was a language
+model's estimate of something the document answers exactly: each clause records which
+evidence ids it cites, and the document records which ids were retrieved, so the share
+whose citations all resolve is arithmetic.
+
+Measured against real runs, the judge was not merely noisy. It reported **1.0** and **0.96**
+where the count was **0.44** and **0.50** — overestimating by more than a factor of two, and
+always in the direction that lets a weak contract pass. `compute_grounding()` counts it now;
+the judge's estimate is kept beside it in `judge_grounding_estimate`, because a judge that is
+consistently generous about grounding is worth knowing about.
+
+Two related defects came out of measuring it:
+
+* **Framing clauses were counted as ungrounded obligations.** The exclusion list compared
+  headings for equality against `"Definitions"`, and a real draft titled its clauses
+  `"Definitions and Interpretation"` and `"Milestones and Delivery Schedule"` — none of which
+  matched. Four framing clauses landed in the denominator and the reported ratio was twenty
+  points pessimistic. Headings are now matched as substrings of a normalised form.
+
+* **Low grounding was invisible in the findings.** The cap silently lowers the score, so a
+  reader saw *"one medium finding"* beside `FAILED` with no way to tell why. Whenever the
+  measured ratio is poor and the judge did not already raise it, an `unsupported_claim`
+  finding is added naming the ungrounded clauses — so the verdict is explainable from the
+  list printed next to it.
+
 ### Which of the two decided the outcome
 
 The score is the lower of the findings penalty and the grounding cap, and the two call for

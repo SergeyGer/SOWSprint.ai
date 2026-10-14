@@ -29,14 +29,18 @@ from ..config import Settings, get_settings
 from ..llm.base import BaseLLMClient, BudgetExceededError, LLMError
 from ..llm.factory import ModelRouter, build_llm_client, get_session_client
 from ..models import (
+    CriticFinding,
     CritiqueReport,
+    FindingCategory,
     Jurisdiction,
     NodeName,
     RequirementScope,
     ScopeStatus,
+    Severity,
     SOWDocument,
     TechnicalBlueprint,
     calibrate_severity,
+    compute_grounding,
     score_from_findings,
     verify_missing_clause_findings,
 )
@@ -585,6 +589,74 @@ class AgentNodes:
             if contradicted:
                 report.dismissed = contradicted
                 log.warning("critic.missing_clause_contradicted", notes=contradicted)
+
+            # Replace the judge's estimate of grounding with the exact count.
+            #
+            # The judge is asked for "the share of substantive clauses whose citations all
+            # exist in the evidence block" — a quantity the document answers precisely, since
+            # it records what each clause cites and what was retrieved. Asking a language
+            # model to estimate it made a hard cap on the score depend on a number nobody
+            # could reproduce, and the estimate ran both ways: a live audit reported 0.333
+            # for a document whose citations counted lower still.
+            #
+            # The estimate is kept rather than discarded, because a judge that is
+            # consistently generous or harsh about grounding is worth knowing about.
+            measured = compute_grounding(draft)
+            if measured.has_evidence:
+                judge_estimate = report.grounding_ratio
+                report.grounding_ratio = measured.ratio
+                report.measured_grounding = measured.ratio
+                report.judge_grounding_estimate = judge_estimate
+                from ..llm.nlp import dedupe
+
+                report.unsupported_citations = dedupe(
+                    list(report.unsupported_citations) + measured.unsupported
+                )
+                # Low grounding must appear as a finding, not only as a cap.
+                #
+                # The cap silently lowers the score, so a reader sees "1 medium finding"
+                # beside FAILED and cannot tell why. The offline checker already raises
+                # this finding; the cloud judge raises it only sometimes. Adding it
+                # whenever the measured ratio is poor makes the verdict explainable from
+                # the list printed next to it, whatever the judge noticed.
+                has_grounding_finding = any(
+                    f.category is FindingCategory.UNSUPPORTED_CLAIM for f in report.findings
+                )
+                if measured.ratio < 0.5 and not has_grounding_finding:
+                    report.findings.append(
+                        CriticFinding(
+                            category=FindingCategory.UNSUPPORTED_CLAIM,
+                            severity=Severity.MEDIUM,
+                            location=", ".join(measured.ungrounded[:4]) or "global",
+                            description=(
+                                f"Only {measured.ratio:.0%} of substantive clauses cite "
+                                "retrieved compliance evidence."
+                            ),
+                            evidence=(
+                                f"{len(measured.considered)} clause(s) considered, "
+                                f"{len(measured.grounded)} traceable."
+                            ),
+                            remediation=(
+                                "Bind the listed clauses to the retrieved passages via "
+                                "`citations`."
+                            ),
+                        )
+                    )
+                    log.info(
+                        "critic.grounding_finding_added",
+                        ratio=measured.ratio,
+                        ungrounded=len(measured.ungrounded),
+                    )
+
+                if abs(judge_estimate - measured.ratio) >= 0.2:
+                    log.warning(
+                        "critic.grounding_estimate_off",
+                        judge=round(judge_estimate, 3),
+                        measured=measured.ratio,
+                        grounded=len(measured.grounded),
+                        considered=len(measured.considered),
+                        unsupported=len(measured.unsupported),
+                    )
 
         # Recompute the score from the findings that survived, ALWAYS — not only when
         # something was dismissed.

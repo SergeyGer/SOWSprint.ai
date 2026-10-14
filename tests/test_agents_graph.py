@@ -58,6 +58,12 @@ class ScriptedCriticClient:
         if schema is CritiqueReport:
             self.critic_calls += 1
             if self.critic_calls <= self.fail_times:
+                # A blocking category, not merely a high severity. Severity is calibrated
+                # from the category, so `unsupported_claim` is capped at advisory however
+                # the model labels it — and this test used to pass only because the injected
+                # `grounding_ratio=0.10` capped the score. Grounding is now counted from the
+                # document's own citations, so a fabricated ratio no longer reaches the
+                # verdict, which is exactly the point of the change.
                 response.parsed = CritiqueReport(
                     passed=False,
                     quality_score=0.30,
@@ -66,15 +72,15 @@ class ScriptedCriticClient:
                     summary="Injected failure for loop testing.",
                     findings=[
                         CriticFinding(
-                            category=FindingCategory.UNSUPPORTED_CLAIM,
+                            category=FindingCategory.SCOPE_DRIFT,
                             severity=Severity.HIGH,
                             location="6",
-                            description="Clause 6 cites no retrieved evidence.",
-                            remediation="Bind clause 6 to a retrieved passage id.",
+                            description="Clause 6 contradicts the approved plan.",
+                            remediation="Rewrite clause 6 against the blueprint.",
                             target_node=NodeName.LEGAL,
                         )
                     ],
-                    repair_instructions=["Bind clause 6 to a retrieved passage id."],
+                    repair_instructions=["Rewrite clause 6 against the blueprint."],
                     attempt=0,
                 )
         return response

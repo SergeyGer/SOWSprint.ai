@@ -543,6 +543,75 @@ class TestSeverityCalibration:
         assert calibrate_severity(finding).severity is Severity.LOW
 
 
+class TestMeasuredGrounding:
+    """Grounding is counted, not estimated.
+
+    It caps the score and therefore decides verdicts, and it was a language model's estimate
+    of a quantity the document answers exactly. Measured against real runs the judge was not
+    merely noisy: it reported 1.0 and 0.96 where the count was 0.44 and 0.50 — overestimating
+    by more than a factor of two, consistently, in the direction that lets weak contracts
+    pass.
+    """
+
+    @staticmethod
+    def _sow(clauses, evidence):
+        from sowsprint.models import SOWClause, SOWDocument
+
+        return SOWDocument(
+            title="t", client_name="c", vendor_name="v",
+            retrieved_evidence_ids=evidence,
+            clauses=[SOWClause(number=n, heading=h, body="x", citations=c)
+                     for n, h, c in clauses],
+        )
+
+    def test_framing_clauses_are_excluded_from_the_denominator(self) -> None:
+        """A definition citing nothing is not an ungrounded obligation.
+
+        The first version compared headings for equality against "Definitions" and missed
+        "Definitions and Interpretation", so four framing clauses counted as ungrounded and
+        the reported ratio was twenty points pessimistic.
+        """
+        from sowsprint.models import compute_grounding
+
+        sow = self._sow(
+            clauses=[
+                ("1", "Definitions and Interpretation", []),
+                ("2", "Scope of Services and Deliverables", []),
+                ("3", "Milestones and Delivery Schedule", []),
+                ("4", "Acceptance Process", []),
+                ("5", "Liability", ["e1"]),
+            ],
+            evidence=["e1"],
+        )
+        grounding = compute_grounding(sow)
+
+        assert grounding.considered == ["5"], "framing clauses must not be counted"
+        assert grounding.ratio == 1.0
+
+    def test_a_citation_nobody_retrieved_is_reported_separately(self) -> None:
+        """A fabricated id reads as substantiation and is worse than no citation."""
+        from sowsprint.models import compute_grounding
+
+        sow = self._sow(
+            clauses=[("1", "Liability", ["e1"]), ("2", "Termination", ["invented"])],
+            evidence=["e1"],
+        )
+        grounding = compute_grounding(sow)
+
+        assert grounding.ratio == 0.5
+        assert grounding.unsupported == ["invented"]
+        assert grounding.ungrounded == ["2"]
+
+    def test_a_clause_with_no_citation_is_ungrounded(self) -> None:
+        from sowsprint.models import compute_grounding
+
+        sow = self._sow(clauses=[("1", "Fees", ["e1"]), ("2", "Security", [])], evidence=["e1"])
+        grounding = compute_grounding(sow)
+
+        assert grounding.ratio == 0.5
+        assert grounding.ungrounded == ["2"]
+
+
 class TestJudgeSanityCheck:
     """A judge that reports a present clause as absent must not halt the run.
 

@@ -220,11 +220,19 @@ criterion and dependency stays in the downloadable files and on the tracker.
 
 ### The workspace, created
 
-<img src="docs/media/jira-issues.png" alt="The provisioned Jira project: 27 issues with priorities, epics and due dates" width="820">
+<img src="docs/media/jira-issues.png" alt="The provisioned Jira backlog: epics and stories with due dates, each linked to its epic" width="820">
 
-Every run provisions its **own** Jira project — 27 issues here, epics and stories with
-priorities and a due date on each, taken from the milestone schedule. Nothing is added to an
-existing project, so two engagements stay comparable.
+Every run provisions its **own** Jira project. This one holds 19 work items: each story
+carries the epic it belongs to, the date it is due, and a priority. The dates are not typed
+in — they come from the milestone schedule, so the backlog and the contract cannot disagree
+about when anything lands.
+
+<img src="docs/media/jira-timeline.png" alt="The Jira timeline view: each epic drawn across its delivery window" width="820">
+
+The same data in Jira's timeline view, where the shape of the engagement is visible at a
+glance: platform foundations and source discovery in November, integrations and the data
+layer through December, the dashboard, hardening and handover into January. Two months of
+work that a reader can check against the contract in one look.
 
 <img src="docs/media/notion-page.png" alt="The Notion engagement summary: milestones, open items and assumptions" width="820">
 

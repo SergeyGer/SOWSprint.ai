@@ -528,6 +528,12 @@ class CritiqueReport(BaseModel):
     #: The judge's own score before verification, retained so the adjustment is visible
     #: rather than silent.
     raw_quality_score: float | None = None
+    #: Grounding counted from the document's own citations. `grounding_ratio` is this
+    #: value; `judge_grounding_estimate` is what the model said before it was replaced,
+    #: kept so a judge that is consistently generous about grounding is visible.
+    measured_grounding: float | None = None
+    judge_grounding_estimate: float | None = None
+
     checked_clauses: int = Field(default=0, ge=0)
     unsupported_citations: list[str] = Field(default_factory=list)
     repair_instructions: list[str] = Field(
@@ -812,6 +818,89 @@ def verify_missing_clause_findings(
 BLOCKING_WEIGHT = 0.30
 ADVISORY_WEIGHT = 0.05
 MAX_ADVISORY_PENALTY = 0.20
+
+
+#: Headings whose clauses carry no compliance obligation of their own, so citing evidence
+#: for them proves nothing. Matched as substrings of a normalised heading rather than by
+#: equality: the first version compared against exact strings, and a real draft titled its
+#: clauses "Definitions and Interpretation" and "Milestones and Delivery Schedule" — none of
+#: which matched, so four framing clauses landed in the denominator and the reported
+#: grounding was pessimistic by twenty points.
+_NON_SUBSTANTIVE_MARKERS = (
+    "definition",
+    "interpretation",
+    "scope of services",
+    "scope of work",
+    "deliverable",
+    "milestone",
+    "delivery schedule",
+    "acceptance process",
+    "change control",
+    "payment schedule",
+    "assumption",
+    "governing law",
+    "compliance note",
+)
+
+
+class Grounding(BaseModel):
+    """How much of a contract is traceable to retrieved evidence, counted exactly."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ratio: float = Field(ge=0.0, le=1.0)
+    considered: list[str] = Field(default_factory=list)
+    grounded: list[str] = Field(default_factory=list)
+    ungrounded: list[str] = Field(default_factory=list)
+    unsupported: list[str] = Field(default_factory=list)
+
+    @property
+    def has_evidence(self) -> bool:
+        return bool(self.considered)
+
+
+def compute_grounding(sow: SOWDocument) -> Grounding:
+    """Count the grounded clauses instead of asking a model to estimate them.
+
+    ``grounding_ratio`` decides the verdict through the score cap, and it was a language
+    model's estimate of a quantity that is exactly countable: the document records which
+    evidence ids each clause cites, and which ids were retrieved, so the share whose
+    citations all resolve is arithmetic.
+
+    Two failures follow from estimating it. The estimate is noisy, so identical contracts
+    score differently between runs. And it is used as a hard cap, so a number nobody can
+    reproduce can fail a contract on its own — which is what happened: a live audit
+    reported ``grounding 0.333, passed False`` beside a single medium finding, and the
+    same document counted exactly came out lower still.
+
+    A citation that names an id nobody retrieved is worse than no citation, because it
+    reads as substantiation. Those are returned separately in ``unsupported``.
+    """
+    known = {str(i) for i in (sow.retrieved_evidence_ids or [])}
+    considered, grounded, ungrounded, unsupported = [], [], [], []
+
+    for clause in sow.clauses:
+        heading = clause.heading.strip().casefold()
+        if any(marker in heading for marker in _NON_SUBSTANTIVE_MARKERS):
+            continue
+        considered.append(clause.number)
+        citations = [str(c) for c in (clause.citations or [])]
+        missing = [c for c in citations if c not in known]
+        unsupported.extend(missing)
+
+        if citations and not missing:
+            grounded.append(clause.number)
+        else:
+            ungrounded.append(clause.number)
+
+    ratio = (len(grounded) / len(considered)) if considered else 1.0
+    return Grounding(
+        ratio=round(ratio, 4),
+        considered=considered,
+        grounded=grounded,
+        ungrounded=ungrounded,
+        unsupported=sorted(set(unsupported)),
+    )
 
 
 def score_from_findings(report: CritiqueReport) -> float:
