@@ -166,7 +166,10 @@ custom_css = "/public/custom.css"
 
 # Specify a JavaScript file that can be used to customize the user interface.
 # The JavaScript file can be served from the public directory.
-# custom_js = "/public/test.js"
+# Chains the live voice transcript into the composer. Chainlit has no server-to-client API
+# for setting the input text, so the transcript is rendered as a hidden element and moved
+# into the textarea by this script — see the file's own header for why that is the only route.
+custom_js = "/public/live-voice.js"
 
 # The style of alert boxes. Can be "classic" or "modern".
 alert_style = "classic"

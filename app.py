@@ -1778,24 +1778,125 @@ async def on_reject(action: cl.Action) -> None:
 # --------------------------------------------------------------------------------------
 
 
+#: How often to transcribe while the speaker is still talking. Long enough that Whisper has
+#: a phrase to work with and that the cost stays negligible, short enough that the words
+#: appear while they are still being said.
+LIVE_TRANSCRIBE_EVERY_S = 4.0
+
+
+def _live_marker(text: str, *, done: bool = False) -> str:
+    """The transcript, carried in an element the client script can read.
+
+    Chainlit offers no server-to-client API for the composer's text, so the value travels
+    as a data attribute and ``public/live-voice.js`` moves it into the textarea. The visible
+    part is the status line a reader sees in the transcript; the attribute is what the field
+    receives.
+    """
+    import html as _html
+
+    payload = _html.escape(text, quote=True)
+    label = "🎙️ Recording — the words appear in the message box as you speak." if not done else "🎙️ Recording finished."
+    return (
+        f'<span id="sowsprint-live-transcript" data-text="{payload}">{label}</span>'
+    )
+
+
+async def _transcribe_partial(buffer: list[bytes], settings: Any) -> str:
+    """Transcribe what has been captured so far, or return empty on any failure.
+
+    A partial transcript is a convenience; the definitive one is produced when the speaker
+    stops. Anything that goes wrong here is swallowed deliberately, because a failed interim
+    pass must never interrupt the recording or surface as an error about the user's voice.
+    """
+    payload, suffix = build_audio_file(
+        buffer, mime_type="audio/wav", sample_rate=settings.audio_sample_rate
+    )
+    if not payload:
+        return ""
+    target = Path(tempfile.gettempdir()) / f"sowsprint-partial-{uuid.uuid4().hex[:8]}{suffix}"
+    try:
+        target.write_bytes(payload)
+        result = await asyncio.to_thread(transcribe_audio, target, settings=settings)
+        return result.text if result.ok else ""
+    except Exception as exc:
+        log.debug("voice.partial_failed", error=str(exc))
+        return ""
+    finally:
+        target.unlink(missing_ok=True)
+
+
 @cl.on_audio_start
 async def on_audio_start() -> bool:
     """Accept an audio stream from the browser's native capture widget."""
     cl.user_session.set("audio_chunks", [])
-    await cl.Message(
-        content="🎙️ *Listening… describe the engagement, then stop the recording.*"
-    ).send()
+    cl.user_session.set("audio_seconds", 0.0)
+    cl.user_session.set("live_message", None)
+    cl.user_session.set("live_transcript", "")
     return True
 
 
 @cl.on_audio_chunk
 async def on_audio_chunk(chunk: cl.AudioChunk) -> None:
-    """Accumulate raw PCM/encoded chunks for the duration of the recording."""
+    """Accumulate chunks, and periodically show what has been said so far.
+
+    The speaker should be able to read their own words as they arrive — a recording where the
+    text only appears afterwards gives no way to notice that the microphone is muted, the
+    wrong device is selected, or the sentence came out wrong, until it is too late to redo.
+    """
     if chunk.isStart:
         cl.user_session.set("audio_mime", chunk.mimeType)
-    buffer = cl.user_session.get("audio_chunks") or []
+
+    buffer: list[bytes] = cl.user_session.get("audio_chunks") or []
     buffer.append(chunk.data)
     cl.user_session.set("audio_chunks", buffer)
+
+    seconds = float(cl.user_session.get("audio_seconds") or 0.0) + getattr(chunk, "elapsedTime", 0)
+    cl.user_session.set("audio_seconds", seconds)
+
+    # Transcribe on a time interval, not on a chunk count: chunk sizes are the browser's
+    # choice and vary with the device.
+    last_pass = float(cl.user_session.get("last_partial_at") or 0.0)
+    if seconds - last_pass < LIVE_TRANSCRIBE_EVERY_S:
+        return
+    cl.user_session.set("last_partial_at", seconds)
+
+    settings = _settings()
+    # A plain string, not an enum: the resolver returns the adapter name, and `.value`
+    # raised on every chunk — so the live path failed silently inside Chainlit's wrapper
+    # while the recording itself carried on.
+    if str(settings.resolved_whisper_provider) == "offline":
+        # Nothing to hear with. Say so once rather than on every interval.
+        if not cl.user_session.get("live_message"):
+            cl.user_session.set("live_message", True)
+            await cl.Message(
+                content=(
+                    "_Live transcription needs a speech provider; the recording will be "
+                    "transcribed when you stop._"
+                )
+            ).send()
+        return
+
+    text = await _transcribe_partial(buffer, settings)
+    if not text:
+        return
+
+    # Whisper repeats itself on short clips; keep the longest reading rather than letting a
+    # truncated pass replace a fuller one.
+    previous = str(cl.user_session.get("live_transcript") or "")
+    if len(text.strip()) < len(previous.strip()):
+        return
+    cl.user_session.set("live_transcript", text)
+
+    message = cl.user_session.get("live_message")
+    content = _live_marker(text)
+    if message in (None, True):
+        message = cl.Message(content=content, author="Voice")
+        cl.user_session.set("live_message", message)
+        await message.send()
+    else:
+        message.content = content
+        with contextlib.suppress(Exception):
+            await message.update()
 
 
 @cl.on_audio_end
@@ -1865,5 +1966,12 @@ async def on_audio_end() -> None:
             ]
         )
     ).send()
+
+    live = cl.user_session.get("live_message")
+    if live not in (None, True):
+        with contextlib.suppress(Exception):
+            live.content = _live_marker(result.text, done=True)
+            await live.update()
+    cl.user_session.set("live_message", None)
 
     await _start_run(result.text)
