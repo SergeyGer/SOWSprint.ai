@@ -820,6 +820,21 @@ ADVISORY_WEIGHT = 0.05
 MAX_ADVISORY_PENALTY = 0.20
 
 
+#: Every artefact this bundle can produce.
+#:
+#: Declared once so the UI's selection list and the exporter cannot disagree about what
+#: exists. A kind the UI offers but this table omits would silently produce nothing.
+ARTIFACT_KINDS: dict[str, str] = {
+    "sow_markdown": "Statement of Work (Markdown)",
+    "sow_pdf": "Statement of Work (PDF)",
+    "backlog_markdown": "Delivery backlog (Markdown)",
+    "jira_csv": "Jira-importable backlog (CSV)",
+    "backlog_json": "Backlog (JSON)",
+    "audit_markdown": "Quality audit (Markdown)",
+    "report_json": "Run report (JSON)",
+}
+
+
 #: Headings whose clauses carry no compliance obligation of their own, so citing evidence
 #: for them proves nothing. Matched as substrings of a normalised heading rather than by
 #: equality: the first version compared against exact strings, and a real draft titled its

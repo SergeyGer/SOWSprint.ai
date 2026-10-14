@@ -21,6 +21,7 @@ import uuid
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import chainlit as cl
 
@@ -593,8 +594,10 @@ def _verdict_banner(critique: CritiqueReport | None, status: str) -> str:
         return "\n".join([
             f"# {STATUS_ICONS.get(status, '•')} NO AUDIT — `{status}`",
             "",
-            "The run ended before the quality audit, so no verdict is available. "
-            "The artefacts below are drafts and have not been checked.",
+            (
+                "The run ended before the quality audit, so no verdict is available. "
+                "The artefacts below are drafts and have not been checked."
+            ),
         ])
 
     if getattr(critique, "degraded", False):
@@ -603,8 +606,10 @@ def _verdict_banner(critique: CritiqueReport | None, status: str) -> str:
             "",
             "**There is no verdict.** " + (critique.degradation_reason or ""),
             "",
-            "Treat every number and finding below as unreliable and re-run. "
-            "The contract itself was drafted normally.",
+            (
+                "Treat every number and finding below as unreliable and re-run. "
+                "The contract itself was drafted normally."
+            ),
         ])
 
     blocking = len(critique.blocking_findings)
@@ -830,7 +835,15 @@ def _plan_destinations(outcome: RunOutcome) -> list[str]:
             url = str(item.get("url", ""))
             if not url.startswith("http"):
                 continue
-            if "atlassian.net" in url:
+            # Parse the host rather than searching the string. `"atlassian.net" in url`
+            # also matches https://example.com/atlassian.net/… — CodeQL flags it, and it is
+            # right to: the value comes from an API response and ends up as a link the
+            # reader is invited to click.
+            try:
+                host = urlparse(url).hostname or ""
+            except ValueError:
+                continue
+            if host == "atlassian.net" or host.endswith(".atlassian.net"):
                 key = item.get("key") or ""
                 # A project URL is more useful than an issue URL: the reader wants the
                 # whole board, not one story.
@@ -949,9 +962,11 @@ def _project_shape(outcome: RunOutcome) -> str:
         size += f" · {points} points"
 
     return (
-        f"**Start:** {start:%A, %d %B %Y} · "
-        f"**Planned finish:** {finish:%A, %d %B %Y} · "
-        f"**Duration:** {size}"
+
+            f"**Start:** {start:%A, %d %B %Y} · "
+            f"**Planned finish:** {finish:%A, %d %B %Y} · "
+            f"**Duration:** {size}"
+
     )
 
 
@@ -980,10 +995,10 @@ def _resource_block(outcome: RunOutcome) -> str:
         f"{role} ({count})" if count > 1 else role for role, count in roles.most_common(6)
     )
     extra = len(roles) - 6
+    tail = f" and {extra} more role(s)" if extra > 0 else ""
     return (
-        f"**Resources:** {listed}"
-        + (f" and {extra} more role(s)" if extra > 0 else "")
-        + " — counted from the roles the stories are written for."
+        f"**Resources:** {listed}{tail} — counted from the roles the stories "
+        "are written for."
     )
 
 
@@ -1153,8 +1168,10 @@ async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
             if dry:
                 any_dry = True
                 lines.append(
-                    f"| {target} | ⚠️ **DRY RUN — nothing was sent.** "
-                    f"{len(created)} call(s) validated, {len(failed)} failed validation |"
+
+                        f"| {target} | ⚠️ **DRY RUN — nothing was sent.** "
+                        f"{len(created)} call(s) validated, {len(failed)} failed validation |"
+
                 )
             elif failed:
                 lines.append(f"| {target} | ❌ {len(created)} created, **{len(failed)} failed** |")

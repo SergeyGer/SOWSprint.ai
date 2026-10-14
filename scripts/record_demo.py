@@ -144,12 +144,16 @@ def main() -> int:
         # often asks a second round after the first answers narrow the scope — so the loop
         # answers whatever it is asked rather than assuming one round is all there is.
         answers = [
-            "Aggregate operational metrics only, no individual employee tracking. "
-            "Acceptance is 40% faster monthly close and adoption by 150 of the 200 staff.",
-            "No automated decision-making — descriptive and predictive analytics for human "
-            "review only, no decisions taken about individuals. The vendor provides and "
-            "manages the production infrastructure; hosting and database licences are "
-            "included in the fixed price.",
+            (
+                "Aggregate operational metrics only, no individual employee tracking. "
+                "Acceptance is 40% faster monthly close and adoption by 150 of the 200 staff."
+            ),
+            (
+                "No automated decision-making — descriptive and predictive analytics for "
+                "human review only, no decisions taken about individuals. The vendor "
+                "provides and manages the production infrastructure; hosting and database "
+                "licences are included in the fixed price."
+            ),
             "Fixed price per milestone, invoiced on acceptance. No other constraints.",
             "Confirmed. Proceed on those terms.",
             "Yes, that is correct. Please proceed with the draft.",

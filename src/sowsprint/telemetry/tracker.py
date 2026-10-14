@@ -15,11 +15,22 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any
 
-from ..config import get_settings
 from ..models import CostReport, TokenUsage
 from .pricing import SHADOW_PRICE, lookup, transcription_cost
 
 _LEDGERS: dict[str, CostLedger] = {}
+
+
+def _default_budget_usd() -> float:
+    """The configured session budget, imported lazily.
+
+    `config` reaches this module through `llm.base`, so a module-level import here closes a
+    cycle that CodeQL reports and that makes import order matter in a way nobody can see.
+    The dependency is one float, read once per ledger, so deferring it costs nothing.
+    """
+    from ..config import get_settings
+
+    return get_settings().session_budget_usd
 _REGISTRY_LOCK = threading.Lock()
 
 
@@ -29,7 +40,7 @@ class CostLedger:
     def __init__(self, session_id: str, budget_usd: float | None = None) -> None:
         self.session_id = session_id
         self.budget_usd = (
-            budget_usd if budget_usd is not None else get_settings().session_budget_usd
+            budget_usd if budget_usd is not None else _default_budget_usd()
         )
         self._lock = threading.Lock()
         self._entries: list[TokenUsage] = []

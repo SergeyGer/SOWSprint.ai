@@ -16,6 +16,7 @@ from typing import Any
 
 from ..config import ARTIFACT_DIR
 from ..models import (
+    ARTIFACT_KINDS,
     ArtifactRef,
     CritiqueReport,
     RequirementScope,
@@ -34,6 +35,12 @@ from .sow_markdown import (
 from .sow_pdf import render_sow_pdf
 
 log = get_logger(__name__)
+
+__all__ = [
+    "ARTIFACT_KINDS",
+    "project_code",
+    "render_deliverables",
+]
 
 
 def _ref(kind: str, path: Path, label: str) -> ArtifactRef:
@@ -54,21 +61,6 @@ def project_code(title: str) -> str:
     from ..llm.offline import project_key_from_title
 
     return project_key_from_title(title)
-
-
-#: Every artefact this bundle can produce.
-#:
-#: Declared once so the UI's selection list and the exporter cannot disagree about what
-#: exists. A kind the UI offers but this table omits would silently produce nothing.
-ARTIFACT_KINDS: dict[str, str] = {
-    "sow_markdown": "Statement of Work (Markdown)",
-    "sow_pdf": "Statement of Work (PDF)",
-    "backlog_markdown": "Delivery backlog (Markdown)",
-    "jira_csv": "Jira-importable backlog (CSV)",
-    "backlog_json": "Backlog (JSON)",
-    "audit_markdown": "Quality audit (Markdown)",
-    "report_json": "Run report (JSON)",
-}
 
 
 def _wanted(kind: str, kinds: set[str] | None) -> bool:

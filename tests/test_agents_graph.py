@@ -649,39 +649,38 @@ class TestTheScoreIsAlwaysDerivedFromTheFindings:
             response = self.inner.complete(messages, schema=schema, **kwargs)
             if schema is CritiqueReport:
                 self.seen += 1
-                if True:
-                    response.parsed = CritiqueReport(
-                        passed=True,                     # the judge is content
-                        quality_score=0.95,              # ...and says so
-                        grounding_ratio=1.0,
-                        hallucination_score=0.0,
-                        summary="Looks broadly fine to me.",
-                        findings=[
-                            CriticFinding(
-                                category=FindingCategory.SCOPE_DRIFT,
-                                severity=Severity.HIGH,
-                                location="16.7",
-                                description="Clause 16.7 cross-references the wrong clause.",
-                                remediation="Point it at Clause 18.",
-                            ),
-                            CriticFinding(
-                                category=FindingCategory.COMMERCIAL_RISK,
-                                severity=Severity.MEDIUM,
-                                location="7.2",
-                                description="The payment schedule is also called an assumption.",
-                                remediation="Make one of the two statements definitive.",
-                            ),
-                            CriticFinding(
-                                category=FindingCategory.AMBIGUITY,
-                                severity=Severity.LOW,
-                                location="9.1",
-                                description="DPA execution is not stated as a precondition.",
-                                remediation="Say that it is.",
-                            ),
-                        ],
-                        repair_instructions=["Fix the Clause 16.7 cross-reference."],
-                        attempt=0,
-                    )
+                response.parsed = CritiqueReport(
+                    passed=True,                     # the judge is content
+                    quality_score=0.95,              # ...and says so
+                    grounding_ratio=1.0,
+                    hallucination_score=0.0,
+                    summary="Looks broadly fine to me.",
+                    findings=[
+                        CriticFinding(
+                            category=FindingCategory.SCOPE_DRIFT,
+                            severity=Severity.HIGH,
+                            location="16.7",
+                            description="Clause 16.7 cross-references the wrong clause.",
+                            remediation="Point it at Clause 18.",
+                        ),
+                        CriticFinding(
+                            category=FindingCategory.COMMERCIAL_RISK,
+                            severity=Severity.MEDIUM,
+                            location="7.2",
+                            description="The payment schedule is also called an assumption.",
+                            remediation="Make one of the two statements definitive.",
+                        ),
+                        CriticFinding(
+                            category=FindingCategory.AMBIGUITY,
+                            severity=Severity.LOW,
+                            location="9.1",
+                            description="DPA execution is not stated as a precondition.",
+                            remediation="Say that it is.",
+                        ),
+                    ],
+                    repair_instructions=["Fix the Clause 16.7 cross-reference."],
+                    attempt=0,
+                )
             return response
 
     def test_the_reported_score_matches_the_formula(

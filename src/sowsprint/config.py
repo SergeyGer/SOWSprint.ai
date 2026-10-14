@@ -403,7 +403,7 @@ class Settings(BaseSettings):
     @property
     def enabled_artifacts(self) -> set[str] | None:
         """The artefact kinds to render, or None for all of them."""
-        from .export.bundle import ARTIFACT_KINDS
+        from .models import ARTIFACT_KINDS
 
         wanted = {k.strip() for k in self.artifact_kinds.split(",") if k.strip()}
         if not wanted:
