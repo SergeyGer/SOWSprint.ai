@@ -87,14 +87,23 @@ def build_offline_settings():
     ``dry_run_integrations=True`` is the important one. The demo shows what provisioning
     *would* do; it must never do it. A visitor clicking a button in a public app cannot be
     allowed to create issues in the maintainer's Jira.
+
+    **Every** provider is pinned, not just the reasoning one. `critic_provider` is separate
+    and was left at its default, so with keys present in the environment — which is the case
+    on any machine configured to run the real application — the demo silently made billable
+    OpenAI calls while the sidebar told the visitor it made none. `whisper_provider` and the
+    rest are pinned for the same reason: a demo that behaves differently depending on whose
+    machine it runs on is not a demo of anything in particular.
     """
     from sowsprint.config import Settings
 
     return Settings(
         llm_provider="mock",             # deterministic engine, no network, no cost
+        critic_provider="mock",          # the auditor is separate; it must be offline too
         vector_backend="memory",         # in-process, no Qdrant container
         embedding_provider="hash",       # local feature hashing, no API
         rerank_provider="heuristic",     # no cross-encoder service
+        whisper_provider="offline",      # no transcription service
         dry_run_integrations=True,       # validate every call, send none
         auth_enabled=False,              # the demo is public by design
         enable_cloud_fallback=False,     # never escalate to a provider mid-run
@@ -126,6 +135,203 @@ def _run(brief: str, jurisdiction: str):
     drop_ledger(session_id)
     session = ScopingSession(session_id, settings=settings, pipeline=pipeline)
     return session.start(brief, jurisdiction=jurisdiction, auto_deploy=True)
+
+
+# --------------------------------------------------------------------------------------
+# Presentation, mirroring the application
+# --------------------------------------------------------------------------------------
+# The demo used to bury the verdict in the last tab and show four bare metrics above it. The
+# application leads with the verdict, states the schedule and the roles, draws the milestones
+# and lists the documents — because those are the questions a reader actually has. A demo
+# that answers different questions than the product is a demo of a different product.
+
+STATUS_ICONS = {
+    "completed": "✅",
+    "awaiting_clarification": "❓",
+    "awaiting_approval": "⏸",
+    "budget_exceeded": "💸",
+    "halted": "⛔",
+    "failed": "❌",
+}
+
+
+def _verdict(outcome) -> tuple[str, str]:
+    """(headline, why) — what the audit decided and what decided it."""
+    critique = outcome.critique
+    if critique is None:
+        return (
+            f"{STATUS_ICONS.get(str(outcome.status).split('.')[-1], '•')} NO AUDIT",
+            "The run ended before the quality audit, so the artefacts below are drafts and "
+            "have not been checked.",
+        )
+
+    blocking = len(critique.blocking_findings)
+    advisory = len(critique.findings) - blocking
+    grounding = critique.grounding_ratio or 0.0
+
+    # Name what actually decided it. The score is the lower of the findings penalty and the
+    # grounding cap, and pointing at the wrong one sends the reader to fix the wrong thing.
+    from sowsprint.models import ADVISORY_WEIGHT, BLOCKING_WEIGHT, MAX_ADVISORY_PENALTY
+
+    findings_score = 1.0 - BLOCKING_WEIGHT * blocking - min(
+        MAX_ADVISORY_PENALTY, ADVISORY_WEIGHT * advisory
+    )
+    cap = max(0.40, grounding)
+    grounding_decided = cap < findings_score - 0.005
+
+    if critique.passed:
+        return (
+            "✅ AUDIT PASSED",
+            "The contract is ready. No blocking finding was raised, and the score cleared "
+            "the 0.72 bar.",
+        )
+    if blocking:
+        return (
+            "❌ AUDIT FAILED",
+            f"**{blocking} blocking finding{'' if blocking == 1 else 's'}** must be resolved "
+            "before this contract is safe to sign.",
+        )
+    if grounding_decided:
+        return (
+            "❌ AUDIT FAILED",
+            f"**The findings are not what failed this.** Only {grounding:.0%} of substantive "
+            f"clauses are traceable to retrieved compliance evidence, and that caps the score "
+            f"at {cap:.2f} — below the 0.72 bar — however few findings were raised.",
+        )
+    return (
+        "❌ AUDIT FAILED",
+        "No single finding blocks signature, but the accumulated advisory findings pushed "
+        "the score below the 0.72 bar.",
+    )
+
+
+def _verdict_table(critique) -> None:
+    blocking = len(critique.blocking_findings)
+    advisory = len(critique.findings) - blocking
+    cols = st.columns(4)
+    cols[0].metric("Score", f"{critique.quality_score:.2f}", help="Derived from the findings.")
+    cols[1].metric(
+        "Grounding",
+        f"{(critique.grounding_ratio or 0):.0%}",
+        help="Substantive clauses whose citations all resolve to retrieved evidence. Counted, "
+        "not estimated.",
+    )
+    cols[2].metric("Blocking", blocking)
+    cols[3].metric("Advisory", advisory)
+
+
+def _project_shape(outcome) -> str:
+    """Start, finish, duration and size — a start alone answers half the question."""
+    from datetime import date, timedelta
+
+    today = date.today()
+    start = today + timedelta(days=(7 - today.weekday()) % 7 or 7)
+    weeks = 0
+    stories = points = 0
+    if outcome.blueprint is not None:
+        weeks = outcome.blueprint.estimated_duration_weeks or sum(
+            m.duration_weeks or 0 for m in outcome.blueprint.milestones
+        )
+        stories = len(outcome.blueprint.all_stories())
+        points = outcome.blueprint.estimated_total_points or 0
+
+    if not weeks:
+        return f"**Start:** {start:%A, %d %B %Y}"
+
+    from sowsprint.schedule import project_window
+
+    _, finish = project_window(start, weeks)
+    size = f"{weeks} weeks"
+    if stories:
+        size += f" · {stories} stories"
+    if points:
+        size += f" · {points} points"
+    return (
+        f"**Start:** {start:%A, %d %B %Y} · **Planned finish:** {finish:%A, %d %B %Y} · "
+        f"**Duration:** {size}"
+    )
+
+
+def _resources(outcome) -> str:
+    """The roles the plan needs, counted from the stories rather than invented."""
+    from collections import Counter
+
+    if outcome.blueprint is None:
+        return ""
+    roles = Counter(
+        (story.as_a or "").strip()
+        for story in outcome.blueprint.all_stories()
+        if (story.as_a or "").strip()
+    )
+    if not roles:
+        return ""
+    listed = ", ".join(f"{role} ({count})" for role, count in roles.most_common())
+    return f"**Resources:** {listed} — counted from the roles the stories are written for."
+
+
+def _gantt(outcome) -> None:
+    """The milestones drawn against the calendar, as bars."""
+    if outcome.blueprint is None or not outcome.blueprint.milestones:
+        return
+    from datetime import date, timedelta
+
+    from sowsprint.schedule import milestone_windows
+
+    today = date.today()
+    start = today + timedelta(days=(7 - today.weekday()) % 7 or 7)
+    milestones = outcome.blueprint.milestones
+    windows = milestone_windows(start, [m.duration_weeks or 1 for m in milestones])
+    span = (windows[-1][1] - start).days or 1
+
+    rows = []
+    for milestone, (opens, closes) in zip(milestones, windows, strict=False):
+        left = 100 * (opens - start).days / span
+        width = max(2.0, 100 * ((closes - opens).days + 1) / span)
+        rows.append(
+            f'<div style="display:flex;align-items:center;gap:10px;margin:5px 0">'
+            f'<div style="width:240px;font-size:0.83rem;flex:0 0 240px">{milestone.name}</div>'
+            f'<div style="flex:1;position:relative;height:22px;background:rgba(127,127,127,0.13);'
+            f'border-radius:3px">'
+            f'<div style="position:absolute;left:{left:.2f}%;width:{width:.2f}%;height:100%;'
+            f'background:#2563eb;border-radius:3px"></div></div>'
+            f'<div style="width:130px;font-size:0.76rem;opacity:0.7;flex:0 0 130px">'
+            f'{milestone.duration_weeks}w · {closes:%d %b}</div></div>'
+        )
+    st.markdown(
+        f'<div style="margin:6px 0 2px">{start:%d %b %Y} → {windows[-1][1]:%d %b %Y}</div>'
+        + "".join(rows),
+        unsafe_allow_html=True,
+    )
+
+
+def _documents(outcome) -> None:
+    """What was produced, in what format, and what each format is for."""
+    if not outcome.artifacts:
+        st.caption("No documents were produced for this run.")
+        return
+    purpose = {
+        "sow_markdown": "review and diff",
+        "sow_pdf": "signing and circulation",
+        "backlog_markdown": "review",
+        "jira_csv": "import into any tracker",
+        "backlog_json": "downstream systems",
+        "audit_markdown": "evidence for the verdict above",
+        "report_json": "full run record",
+        "revision_markdown": "what changed between revisions",
+    }
+    rows = []
+    for artifact in outcome.artifacts:
+        path = Path(artifact.path)
+        size = f"{path.stat().st_size / 1024:.0f} KB" if path.is_file() else "—"
+        rows.append(
+            {
+                "Document": artifact.kind.replace("_", " ").title(),
+                "Format": path.suffix.lstrip(".").upper() or "—",
+                "Size": size,
+                "Use": purpose.get(artifact.kind, "—"),
+            }
+        )
+    st.dataframe(rows, hide_index=True, use_container_width=True)
 
 
 # --------------------------------------------------------------------------------------
@@ -201,16 +407,19 @@ if generate:
             st.error(f"The pipeline failed: `{type(exc).__name__}: {exc}`")
             st.stop()
 
-    # ---------------------------------------------------------------- status
-    status_cols = st.columns(4)
-    status_cols[0].metric("Status", str(outcome.status).title())
-    if outcome.sow:
-        status_cols[1].metric("Clauses", len(outcome.sow.clauses))
-        status_cols[2].metric("Words", f"{outcome.sow.word_count():,}")
-    if outcome.blueprint:
-        status_cols[3].metric(
-            "Stories", len(outcome.blueprint.all_stories())
-        )
+    # ---------------------------------------------------------------- verdict first
+    # Before anything else, because a reader scanning a long run should not have to find it.
+    if outcome.critique is not None:
+        headline, why = _verdict(outcome)
+        st.markdown(f"## {headline}")
+        st.markdown(why)
+        _verdict_table(outcome.critique)
+        st.divider()
+    else:
+        headline, why = _verdict(outcome)
+        st.markdown(f"## {headline}")
+        st.caption(why)
+        st.divider()
 
     # ---------------------------------------------------------------- clarification
     if outcome.awaiting_clarification:
@@ -230,6 +439,21 @@ if generate:
             "point — the graph is checkpointed."
         )
         st.stop()
+
+    # ---------------------------------------------------------------- shape of the work
+    if outcome.blueprint is not None:
+        st.markdown(_project_shape(outcome))
+        roles = _resources(outcome)
+        if roles:
+            st.markdown(roles)
+        st.markdown("##### Milestones")
+        _gantt(outcome)
+        st.divider()
+
+    # ---------------------------------------------------------------- documents
+    st.markdown("##### Documents produced")
+    _documents(outcome)
+    st.divider()
 
     # ---------------------------------------------------------------- contract
     tab_sow, tab_plan, tab_audit = st.tabs(
@@ -274,11 +498,8 @@ if generate:
     with tab_audit:
         if outcome.critique:
             critique = outcome.critique
-            verdict = "PASSED" if critique.passed else "FAILED"
-            (st.success if critique.passed else st.error)(
-                f"**{verdict}** — score {critique.quality_score:.2f}, "
-                f"grounding {critique.grounding_ratio:.0%}, "
-                f"{len(critique.findings)} finding(s)"
+            st.caption(
+                "The verdict is at the top of the page. This is the evidence behind it."
             )
             if critique.findings:
                 for finding in critique.findings:

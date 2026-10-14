@@ -1110,6 +1110,40 @@ def legal_offline(
         "confidentiality and data-handling regime applies."
     ]
 
+    # Name the clauses that impose obligations but cite nothing.
+    #
+    # `_cite` selects evidence by keyword, and for some clauses the retrieved passages contain
+    # none of its terms — warranties and indemnities in particular. The clause is then drafted
+    # from the blueprint alone and carries no citation. That is a legitimate outcome; leaving
+    # it unstated is not, because the contract reads as fully evidenced while a third of its
+    # operative terms rest on nothing, and the audit counts them without saying which.
+    #
+    # The cloud prompt asks a model to do the same thing. The offline engine should not be
+    # held to a lower standard than the model it stands in for.
+    _framing = (
+        "definition",
+        "scope of services",
+        "scope of work",
+        "deliverable",
+        "milestone",
+        "delivery schedule",
+        "acceptance",
+        "change control",
+    )
+    uncovered = [
+        f"{clause.number}. {clause.heading}"
+        for clause in clauses
+        if not clause.citations
+        and not any(marker in clause.heading.casefold() for marker in _framing)
+    ]
+    if uncovered:
+        compliance_notes.append(
+            "No retrieved passage supported these clauses, which are drafted from the "
+            "blueprint and the agreed commercial terms rather than from precedent: "
+            + "; ".join(uncovered)
+            + ". Treat them as negotiated positions, not as grounded restatements."
+        )
+
     doc = SOWDocument(
         title=f"Statement of Work — {scope.title}",
         client_name=scope.client_name,
