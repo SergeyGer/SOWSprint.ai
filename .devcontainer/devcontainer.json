@@ -1,0 +1,116 @@
+{
+  // ---------------------------------------------------------------------------
+  // SOWSprint.ai — VS Code Dev Containers
+  // ---------------------------------------------------------------------------
+  // Open the folder in VS Code and run "Dev Containers: Reopen in Container". The extension
+  // builds .devcontainer/Dockerfile, starts Qdrant beside it, and attaches VS Code to the
+  // result. Everything after that — the terminal, the Python interpreter, the test runner —
+  // runs inside the container, so the environment is the same on a Windows laptop and on the
+  // Linux server.
+  //
+  // The container does NOT start the application. Use the terminal:
+  //     python -m chainlit run app.py --host 0.0.0.0 --port 8000
+  // or, for the whole stack with health checks, ../scripts/start.sh — but see the note about
+  // ports in docs/Run_Stop_Project.docx, because the dev container and the production stack
+  // both publish 8000.
+
+  "name": "SOWSprint.ai (dev)",
+
+  "dockerComposeFile": ["docker-compose.yml"],
+  "service": "dev",
+  "workspaceFolder": "/workspaces/SOWSprint",
+
+  // Stop the container when VS Code closes the window. Without this the container keeps
+  // running and holding 8000 after you have moved to another project, which is the exact
+  // problem this setup exists to avoid.
+  "shutdownAction": "stopCompose",
+
+  "remoteUser": "vscode",
+
+  // VS Code rewrites the container user's UID to match whoever owns the files on the host.
+  // Without it the bind mount is unreadable to `vscode` whenever the host UID is not 1000 —
+  // saving a file fails with "permission denied" and the cause is not visible from the
+  // editor. It is the default; stated here because the failure it prevents is confusing.
+  "updateRemoteUserUID": true,
+
+  // 8000 is the application; 6333 is Qdrant's dashboard and is genuinely useful to open while
+  // debugging retrieval. 6334 is gRPC and is forwarded only so the port is visible in the
+  // Ports panel — do not open it in a browser.
+  "forwardPorts": [8000, 6333, 6334],
+  "portsAttributes": {
+    "8000": {
+      "label": "SOWSprint.ai",
+      "onAutoForward": "notify"
+    },
+    "6333": {
+      "label": "Qdrant dashboard",
+      "onAutoForward": "silent"
+    },
+    "6334": {
+      "label": "Qdrant gRPC",
+      "onAutoForward": "silent"
+    }
+  },
+
+  // `pip install -e .` makes `import sowsprint` resolve to the working tree rather than to a
+  // copy in site-packages, so an edit is picked up without reinstalling. The dependencies are
+  // already in the image; this only wires up the package itself.
+  "postCreateCommand": "pip install --no-deps -e . && python -c \"import sowsprint; print('sowsprint ready:', sowsprint.__file__)\"",
+
+  // Printed in the terminal when the container opens, where it is read at the moment it is
+  // useful. A README section is read once, months earlier.
+  "postAttachCommand": "echo '' && echo '  SOWSprint.ai dev container' && echo '  --------------------------' && echo '  App:    python -m chainlit run app.py --host 0.0.0.0 --port 8000' && echo '  Tests:  pytest -q' && echo '  Lint:   ruff check src tests app.py' && echo '  Qdrant: http://localhost:6333/dashboard' && echo ''",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "ms-python.debugpy",
+        "redhat.vscode-yaml",
+        "ms-azuretools.vscode-docker",
+        "tamasfe.even-better-toml",
+        "bierner.markdown-mermaid",
+        "github.vscode-github-actions",
+        "eamodio.gitlens"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/venv/bin/python",
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["tests"],
+        "python.testing.unittestEnabled": false,
+        "editor.formatOnSave": false,
+        "editor.rulers": [100],
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+          }
+        },
+        "ruff.importStrategy": "fromEnvironment",
+        // The project's own line length, so the editor and CI agree about what is too long.
+        "ruff.lineLength": 100,
+        "files.exclude": {
+          "**/__pycache__": true,
+          "**/.pytest_cache": true,
+          "**/.ruff_cache": true,
+          "**/*.egg-info": true
+        },
+        "files.watcherExclude": {
+          "**/data/artifacts/**": true,
+          "**/.venv/**": true,
+          "**/__pycache__/**": true
+        },
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+
+  // The working tree is on a bind mount, which on Docker Desktop for Windows and macOS is
+  // slower than a native filesystem. These keep the interactive parts (test discovery,
+  // IntelliSense over the venv) off that mount.
+  "mounts": [
+    "source=sowsprint-dev-vscode-server,target=/home/vscode/.vscode-server,type=volume"
+  ]
+}

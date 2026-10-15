@@ -92,3 +92,8 @@ Thumbs.db
 
 # Docker local config (sandbox-friendly DOCKER_CONFIG)
 .docker/
+
+
+# ---- personal operator notes ------------------------------------------------
+Run_Stop_Project*.docx
+Run_Stop_Project*.doc

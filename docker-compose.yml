@@ -11,6 +11,15 @@
 #
 # If port 8000 is already taken on your machine, set SOWSPRINT_HOST_PORT in .env —
 # the container-internal port stays 8000 either way.
+#
+# Nothing here starts by itself.
+#
+# `restart: unless-stopped` brought both services back after every reboot, so the stack
+# competed for ports 8000/6333/6334 with whatever else the machine was running, and closing
+# the laptop for the day did not stop it. `restart: "no"` is Docker's own default and means
+# what it says: a container runs when it is started and stays stopped until it is started
+# again. Use scripts/start.sh — or scripts\start.ps1 on Windows — to bring the stack up.
+# A reboot no longer does it for you.
 
 name: sowsprint
 
@@ -19,7 +28,7 @@ services:
   sowsprint-qdrant:
     image: qdrant/qdrant:v1.12.4
     container_name: sowsprint-qdrant
-    restart: unless-stopped
+    restart: "no"
     environment:
       QDRANT__SERVICE__GRPC_PORT: "6334"
       QDRANT__LOG_LEVEL: INFO
@@ -47,7 +56,7 @@ services:
       dockerfile: Dockerfile
     image: sowsprint/app:2.0.0
     container_name: sowsprint-app
-    restart: unless-stopped
+    restart: "no"
     depends_on:
       sowsprint-qdrant:
         condition: service_healthy
