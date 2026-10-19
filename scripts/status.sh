@@ -51,7 +51,19 @@ if [ -n "$others" ]; then
   head_ "Other projects running on this machine"
   for project in $others; do
     count="$(docker ps --filter "label=com.docker.compose.project=$project" --format '{{.Names}}' | wc -l | tr -d ' ')"
-    printf '  %-24s %s container(s)\n' "$project" "$count"
+    # A dev container on a shared server is named `sowsprint-dev-<person>`. Saying "another
+    # project" would send the operator looking for a stranger when the answer is a colleague
+    # who left a VS Code window open — or themselves, from another laptop.
+    case "$project" in
+      sowsprint-dev-*)
+        who="${project#sowsprint-dev-}"
+        printf '  %-24s %s container(s)  %sVS Code dev container — %s%s\n' \
+          "$project" "$count" "$C_DIM" "$who" "$C_RESET"
+        ;;
+      *)
+        printf '  %-24s %s container(s)\n' "$project" "$count"
+        ;;
+    esac
     docker ps --filter "label=com.docker.compose.project=$project" --format '{{.Names}}' \
       | sed 's/^/      /'
   done

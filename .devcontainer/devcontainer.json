@@ -27,15 +27,39 @@
 
   "remoteUser": "vscode",
 
+  // Each developer gets their own compose project, containers, network and volume. Without
+  // the suffix, a second person opening the same folder on the same server collides on every
+  // name at once — the compose project, both containers, the network — and the error reads
+  // like a broken repository rather than like a shared machine.
+  //
+  // The naming itself is done by compose: docker-compose.yml writes
+  // `${SOWSPRINT_DEV_ID:-${USER:-local}}`, and $USER is the account logged in on the server.
+  // Overriding SOWSPRINT_DEV_ID in the shell before opening the container is enough to take
+  // a second identity on the same account — useful for testing the multi-developer case
+  // alone.
+  //
+  // remoteEnv carries the resolved name INTO the container so scripts and shells can print
+  // which workspace they belong to. It does not drive the naming; compose reads the host
+  // environment, which this cannot influence.
+  "remoteEnv": {
+    "SOWSPRINT_DEV_ID": "${localEnv:USER:local}"
+  },
+
   // VS Code rewrites the container user's UID to match whoever owns the files on the host.
   // Without it the bind mount is unreadable to `vscode` whenever the host UID is not 1000 —
   // saving a file fails with "permission denied" and the cause is not visible from the
   // editor. It is the default; stated here because the failure it prevents is confusing.
   "updateRemoteUserUID": true,
 
-  // 8000 is the application; 6333 is Qdrant's dashboard and is genuinely useful to open while
-  // debugging retrieval. 6334 is gRPC and is forwarded only so the port is visible in the
-  // Ports panel — do not open it in a browser.
+  // These are the ONLY way in. The container publishes nothing on the server — on a shared
+  // machine that would make two developers compete for 8000, which is a conflict neither of
+  // them can see. VS Code forwards each port from the container to whatever laptop the
+  // developer is sitting at, so the application appears on their own localhost and nowhere
+  // else.
+  //
+  // 8000 is the application. 6333 is Qdrant's dashboard, worth opening while debugging
+  // retrieval. 6334 is gRPC, forwarded only so it is visible in the Ports panel — do not open
+  // it in a browser.
   "forwardPorts": [8000, 6333, 6334],
   "portsAttributes": {
     "8000": {

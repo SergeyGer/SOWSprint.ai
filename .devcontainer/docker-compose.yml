@@ -1,8 +1,8 @@
 # ---------------------------------------------------------------------------
 # SOWSprint.ai — compose file for the VS Code development container
 # ---------------------------------------------------------------------------
-# A separate compose PROJECT (`sowsprint-dev`, not `sowsprint`), and that is the important
-# decision in this file.
+# A separate compose PROJECT from `sowsprint` (the production stack), and that is the
+# important decision in this file.
 #
 # The scripts in ../scripts are scoped to the compose project `sowsprint`. If the dev
 # container joined that project, `./scripts/stop.sh` would take it down — killing the
@@ -11,25 +11,44 @@
 # independent, and `./scripts/status.sh` reports the dev container as another project holding
 # the ports, which is exactly what it is.
 #
-# They cannot run at the same time: both publish 8000, 6333 and 6334. `./scripts/start.sh`
-# detects that and names the container in the way, rather than failing with a bind error.
+# ---------------------------------------------------------------------------
+# Several developers on ONE server
+# ---------------------------------------------------------------------------
+# Everything below is namespaced by SOWSPRINT_DEV_ID, which defaults to the OS user name.
+#
+# Without it, a second developer opening the same folder on the same server collides on every
+# name: the compose project, both container names, the network and the pip cache volume. The
+# failure is a Docker error about a name already in use, arriving seconds after "Reopen in
+# Container" is clicked, and it reads like a broken repository rather than a shared machine.
+#
+# With it, each person gets their own container, their own network and their own volume, and
+# neither knows the other is there.
+#
+# ---------------------------------------------------------------------------
+# Why nothing is published on the host any more
+# ---------------------------------------------------------------------------
+# `forwardPorts` in devcontainer.json is what makes the application reachable, and it works
+# for both cases: VS Code forwards the port from the container to whatever machine the
+# developer is sitting at. Publishing on the server as well would be redundant, and worse —
+# it would make two developers compete for 8000, 6333 and 6334 on a machine that is not even
+# in front of either of them.
+#
+# So the container binds nothing on the server. The application still listens on 0.0.0.0
+# inside its own network namespace, which is what VS Code needs to forward it.
 
-name: sowsprint-dev
+name: sowsprint-dev-${SOWSPRINT_DEV_ID:-${USER:-local}}
 
 services:
   # ------------------------------------------------------------------ vector DB
-  # The same image and the same named volume as the production compose file, so the index
-  # built while developing is the index the stack uses. Re-ingesting 615 chunks on every
-  # switch would make the dev container feel like a punishment.
+  # One volume per developer by default. Sharing would save disk, but two Qdrant processes
+  # cannot mount the same storage at the same time, and the second developer's container
+  # would fail to start with a lock error that says nothing about the first.
   qdrant:
     image: qdrant/qdrant:v1.12.4
-    container_name: sowsprint-dev-qdrant
+    container_name: sowsprint-dev-qdrant-${SOWSPRINT_DEV_ID:-${USER:-local}}
     restart: "no"
     volumes:
       - qdrant_storage:/qdrant/storage
-    ports:
-      - "${SOWSPRINT_QDRANT_HTTP_PORT:-6333}:6333"
-      - "${SOWSPRINT_QDRANT_GRPC_PORT:-6334}:6334"
     healthcheck:
       test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
       interval: 10s
@@ -37,55 +56,54 @@ services:
       retries: 5
       start_period: 10s
     networks:
-      - sowsprint-dev-net
+      - dev-net
 
   # ------------------------------------------------------------------ workspace
   dev:
     build:
       context: ..
       dockerfile: .devcontainer/Dockerfile
-    container_name: sowsprint-dev
+    container_name: sowsprint-dev-${SOWSPRINT_DEV_ID:-${USER:-local}}
     restart: "no"
     depends_on:
       qdrant:
         condition: service_healthy
     # The working tree is bind-mounted, so edits made in VS Code are the files the tests and
     # the application read. Nothing is copied.
+    #
+    # A shared checkout is safe here because git work is per-file and the container only
+    # reads. Two developers editing the same file at the same moment is a git problem, not a
+    # container one, and the answer is branches — see the document.
     volumes:
       - ..:/workspaces/SOWSprint:cached
-      # Kept in a named volume so a rebuild does not re-download every wheel.
       - pip-cache:/home/vscode/.cache/pip
       # The host's Docker socket, so `docker` and `docker compose` work from inside the
       # container. Without it the start/stop scripts cannot be exercised from the terminal
       # VS Code opens, which is where anyone would try them.
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      # Inside the compose network the database answers to its service name, so
-      # localhost is the wrong address here and the compose file sets it rather than
-      # leaving it to .env.
+      # Inside the compose network the database answers to its service name, so localhost is
+      # the wrong address here and this file sets it rather than leaving it to .env.
       SOWSPRINT_VECTOR_BACKEND: "qdrant"
       SOWSPRINT_QDRANT_URL: "http://qdrant:6333"
       SOWSPRINT_HOST: "0.0.0.0"
       SOWSPRINT_PORT: "8000"
-    # The application port, published so a phone on the same Wi-Fi can reach the build —
-    # the same reason the production compose file binds 0.0.0.0.
-    ports:
-      - "${SOWSPRINT_HOST_PORT:-8000}:8000"
+      SOWSPRINT_DEV_ID: "${SOWSPRINT_DEV_ID:-${USER:-local}}"
     # Chainlit's file watcher and pytest both behave better with more shared memory than the
     # 64 MB default.
     shm_size: "1gb"
     command: sleep infinity
     networks:
-      - sowsprint-dev-net
+      - dev-net
 
 volumes:
+  # Named per developer; compose still prefixes with the project name, which already carries
+  # the developer id.
   qdrant_storage:
-    # The PRODUCTION compose file's volume, named `<project>_<volume>`. Compose prefixes
-    # volumes with the project name, so it is spelled out here to point at the same one.
-    name: sowsprint_qdrant_storage
+    name: sowsprint-dev-qdrant-${SOWSPRINT_DEV_ID:-${USER:-local}}
   pip-cache:
-    name: sowsprint-dev-pip-cache
+    name: sowsprint-dev-pip-${SOWSPRINT_DEV_ID:-${USER:-local}}
 
 networks:
-  sowsprint-dev-net:
-    name: sowsprint-dev-net
+  dev-net:
+    name: sowsprint-dev-net-${SOWSPRINT_DEV_ID:-${USER:-local}}
