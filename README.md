@@ -369,6 +369,8 @@ people get hurt:
 
 Built with LangGraph, Chainlit, Qdrant and Docker · **490 tests** · MIT licensed
 
+**[Latest release](https://github.com/SergeyGer/SOWSprint.ai/releases/latest)** — `v2.0.0`, published as `ghcr.io/sergeyger/sowsprint.ai:2.0.0`
+
 **[Contributing](CONTRIBUTING.md)** · **[Security policy](SECURITY.md)** · **[Changelog](CHANGELOG.md)** · **[Code of conduct](CODE_OF_CONDUCT.md)**
 
 <sub>The bundled compliance corpus is an adaptation of CUAD (CC BY 4.0) and Pile of Law, with
