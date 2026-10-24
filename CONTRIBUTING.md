@@ -29,13 +29,42 @@ browser — useful for reviewing a change without setting anything up.
 ## Before opening a pull request
 
 ```bash
-.venv/bin/python -m pytest tests -o addopts= -q     # 483 tests, ~20s
+.venv/bin/python -m pytest tests -o addopts= -q     # 490 tests, ~20s
 .venv/bin/python -m ruff check src tests app.py scripts
 .venv/bin/python scripts/check_docs.py              # every referenced asset exists and is tracked
 .venv/bin/python scripts/check_wiki.py              # sidebar matches the pages
 ```
 
 All four run in CI. Running them locally is faster than reading a failure notification.
+
+### You have to open a pull request
+
+`main` is protected by a repository ruleset named **Protect Main**, and the rules apply to
+everyone including the maintainer:
+
+| Rule | Effect |
+| :-- | :-- |
+| `pull_request` | A direct `git push` to `main` is rejected. Changes arrive through a PR. |
+| `required_status_checks` | Four CI checks must pass before the merge button enables |
+| `strict_required_status_checks_policy` | The branch must be up to date with `main` first |
+| `non_fast_forward` | Force-pushing over history is refused |
+| `deletion` | The branch cannot be deleted |
+
+The four required checks are `Tests & lint (Python 3.11)`, `Tests & lint (Python 3.12)`,
+`Docker image builds` and `End-to-end pipeline (offline engine)`.
+
+The docs checks are **not** required, deliberately: `.github/workflows/docs.yml` is filtered
+to `**.md` and `docs/**`, so on a code-only pull request it never runs — and a required check
+that never appears blocks the merge forever. Those checks still run and still matter; they
+simply cannot be a gate for changes that cannot affect them.
+
+A rejected direct push looks like this, and it is the ruleset working, not a broken remote:
+
+```
+remote: - 4 of 4 required status checks are expected.
+remote: - Changes must be made through a pull request.
+ ! [remote rejected] main -> main (push declined due to repository rule violations)
+```
 
 ---
 
