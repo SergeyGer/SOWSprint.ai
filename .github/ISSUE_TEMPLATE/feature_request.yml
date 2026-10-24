@@ -1,0 +1,54 @@
+name: Feature request
+description: A capability this system should have
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The [Roadmap](https://github.com/SergeyGer/SOWSprint.ai/wiki/Roadmap) lists what is
+        planned and what is deliberately not planned — worth a look first, so a good idea is
+        not argued for twice.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What is hard or impossible today. Describe the situation, not the solution.
+      placeholder: |
+        When a second reviewer wants to approve a run, there is no way to record that they
+        saw it...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would build
+      description: Your suggestion, if you have one. It is fine not to.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Scoping quality (Triage, Architect, Legal, Critic)
+        - Compliance corpus and retrieval
+        - Integrations (Jira, Notion, other trackers)
+        - Interface and accessibility
+        - Operations, deployment and the dev container
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints this must respect
+      description: |
+        These are properties the project will not give up for a feature. Tick the ones your
+        proposal keeps.
+      options:
+        - label: Works with no credentials (the deterministic engine stays first-class)
+        - label: Nothing is provisioned without human approval
+        - label: The verdict stays explainable from the findings a reader can see

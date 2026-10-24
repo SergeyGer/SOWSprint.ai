@@ -1,0 +1,81 @@
+name: Bug report
+description: Something behaves differently from what the documentation says
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: this project runs **with no credentials at all**, so a failure in
+        offline mode is a bug, while a failure only with cloud models is usually configuration.
+        `scripts/probe_providers.py` prints the remedy for anything misconfigured.
+
+        Security problems go to the [private advisory
+        form](https://github.com/SergeyGer/SOWSprint.ai/security/advisories/new), never here.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The behaviour you saw, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: |
+        The shortest sequence that shows it. A brief that triggers the problem is the most
+        useful thing in this form — the pipeline is driven by the text.
+      placeholder: |
+        1. python -m chainlit run app.py
+        2. Paste this brief: ...
+        3. At the approval gate, ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Which engine
+      description: The offline engine is deterministic; anything involving a model provider is not.
+      options:
+        - Offline / deterministic engine (no API keys)
+        - Cloud models (Anthropic, OpenAI, or both)
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Where in the pipeline
+      description: The stage name is printed in the transcript next to each step.
+      options:
+        - Triage
+        - Clarification
+        - Architect
+        - Legal / drafting
+        - Critic / quality audit
+        - Tool planning or provisioning (Jira, Notion)
+        - Voice capture or transcription
+        - The interface itself
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        `docker compose logs sowsprint-app --tail 100`, or the terminal output. The pipeline
+        logs structured events (`critic.*`, `voice.*`, `tools.*`) that name the stage.
+      render: shell
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The commit (`git log --oneline -1`) or the image tag.
+      placeholder: "a5f6f62, or ghcr.io/sergeyger/sowsprint.ai:latest"
