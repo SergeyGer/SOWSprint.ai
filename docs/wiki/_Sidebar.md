@@ -10,6 +10,7 @@
 - [Agent pipeline](Agent-Pipeline)
 - [Compliance-aware RAG](Compliance-RAG)
 - [Quality assurance](Quality-Assurance)
+- [LLM quality & reliability](LLM-Quality)
 
 **Running it**
 - [Deployment & operations](Operations)
