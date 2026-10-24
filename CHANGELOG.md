@@ -4,14 +4,24 @@ Notable changes to this project. The format follows [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
-The repository has not been tagged yet — the image is published as `2.0.0`. Everything below
-is therefore grouped by area rather than by release date, and entries record **why** a change
-was made, because a changelog that lists only what changed cannot help anyone decide whether
-to upgrade.
+Entries record **why** a change was made, not only what changed: a changelog that lists only
+the what cannot help anyone decide whether to upgrade.
 
 ---
 
-## Unreleased
+## 2.0.0 — 2026-10-24
+
+The first tagged release. `2.0.0` is the version the repository already declared in
+`pyproject.toml` and the image tag in `docker-compose.yml`; it is tagged as declared rather
+than renumbered to suit the absence of an earlier tag.
+
+**Image:** `ghcr.io/sergeyger/sowsprint.ai:2.0.0` (also `2.0` and `latest`), linux/amd64,
+with provenance and SBOM attached.
+
+**Before this tag, the README offered a `docker run` command for an image that did not
+exist.** No `v*` tag had ever been pushed, `publish.yml` therefore never ran, and nothing
+contradicted the claim. The tag is what makes it true; the lesson is that a documented command
+nobody has executed is a claim, not a feature.
 
 ### Added
 
@@ -91,9 +101,16 @@ to upgrade.
 
 ## Versioning
 
-`2.0.0` is the image tag. Until the first tag, treat `main` as the only supported version and
-pin the image by digest if you need reproducibility:
+Releases are git tags of the form `vX.Y.Z`; pushing one triggers `.github/workflows/publish.yml`,
+which builds the image, pushes it to GHCR, and **starts the pushed image** before reporting
+success — a green push is not evidence that a newcomer can run it.
+
+The image tags `X.Y.Z`, `X.Y` and `latest` are derived from the git tag. Pin by digest if you
+need reproducibility beyond a version:
 
 ```bash
+docker pull ghcr.io/sergeyger/sowsprint.ai:2.0.0
 docker pull ghcr.io/sergeyger/sowsprint.ai@sha256:<digest>
 ```
+
+Only the latest release receives fixes; there are no maintained branches to back-port to.
