@@ -17,6 +17,8 @@ contract together with the delivery plan to execute it.
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/SergeyGer/SOWSprint.ai/wiki)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
+[![audit recall](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FSergeyGer%2FSOWSprint.ai%2Fmain%2Fdocs%2Feval.json&query=%24.badge&label=audit%20recall&color=brightgreen&style=flat-square)](https://github.com/SergeyGer/SOWSprint.ai/wiki/LLM-Quality)
+
 <!-- BEGIN GENERATED BADGES — edit scripts/gen_badges.py, not this block -->
 **Core stack** — each version is read from the file that governs it (`requirements.txt`, `requirements-dev.txt`, the CI matrix, the Dockerfile), so the badges cannot drift from what the repository declares. Each links to the technology's own documentation; for why these were chosen and what they do here, see the [wiki](https://github.com/SergeyGer/SOWSprint.ai/wiki/Architecture).
 
@@ -306,6 +308,32 @@ tested. Findings name the clause, the severity and the reasoning — for example
 
 A reader in a hurry would not catch that. The audit did.
 
+### The audit is measured, not asserted
+
+Every project in this space claims an AI contract reviewer. Almost none publishes whether it
+works. This one does:
+
+```
+15 injected defects · 15 found · 0 findings on a clean contract · 100% precision
+```
+
+`scripts/eval_audit.py` builds a contract that passes every check, then injects exactly one
+defect into a copy — a removed GDPR clause, a fabricated citation id, a payment schedule that
+sums to 80, a clause left as a placeholder — and reports whether the audit finds that defect
+**and nothing else**. Two variants of most defect kinds, in different clauses, so the figure
+measures that the checks work rather than that they exist.
+
+Reproduce it in one command:
+
+```bash
+python scripts/eval_audit.py
+```
+
+The number is deliberately modest in what it claims: the corpus is synthetic and was written
+alongside the checks, so it measures detection of **known, mechanical defect classes**, not
+legal accuracy. What it rules out is the failure this category is full of — a reviewer that
+finds nothing, or finds everything.
+
 **[Quality assurance in depth →](https://github.com/SergeyGer/SOWSprint.ai/wiki/Quality-Assurance)** · **[How answer quality is measured, and what is not guaranteed →](https://github.com/SergeyGer/SOWSprint.ai/wiki/LLM-Quality)**
 
 ---
@@ -353,9 +381,12 @@ people get hurt:
 
 - **This is not legal advice.** It drafts and audits against a tagged corpus. It does not
   practise law, and the bundled corpus is not a substitute for counsel.
-- **The audit's precision is not yet measured.** The guards are tested; the judge's accuracy
-  against a labelled set is not. A published evaluation is the next major item on the
-  roadmap.
+- **The audit is measured against synthetic defects, not against a lawyer's judgement.** It
+  finds 15 of 15 injected mechanical defects with no collateral findings, which rules out the
+  two common failures — an audit that finds nothing and an audit that finds everything. It
+  does not tell you the audit is right about a contract a lawyer would consider subtly
+  unbalanced. The **cloud** judge is not measured at all: that needs a pinned provider, a
+  budget and a decision about which model defines the published figure.
 - **The EU corpus is regulatory text, not precedent clauses.** No public dataset of EU
   contract clause language exists. US commercial clauses come from CUAD; EU material is
   GDPR, the AI Act and guidance, from which clauses are authored rather than retrieved.

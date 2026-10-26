@@ -15,7 +15,7 @@ flowchart TB
 
     subgraph next["Next — unblocks procurement"]
         P1["<b>On-premise LLM profile</b><br/>garanteed data boundary"]
-        P2["<b>Evaluation harness</b><br/>measured audit quality"]
+        P2["<b>Evaluation harness</b><br/>deterministic checker measured"]
         P3["TLS + RBAC"]
     end
 
@@ -48,10 +48,14 @@ behaviour, and a startup assertion that the resolved configuration makes no clou
 
 → [Full design](Corporate-LLM)
 
-### 2. Evaluation harness with published results
-Audit quality is currently asserted from experience, not measured. Take sound contracts,
-inject exactly one known defect into each, and report whether the judge finds that defect
-**and nothing else** — precision and recall per release.
+### 2. Evaluation harness with published results — **shipped for the deterministic checker**
+
+Audit quality used to be asserted from experience. It is now measured: 15 injected defects,
+15 found, no findings on a clean contract, 100% precision. See
+[LLM quality & reliability](LLM-Quality#how-well-the-audit-actually-works).
+
+The remaining work is the half that is harder to publish: measuring the **cloud judge**, which
+needs a pinned provider, a budget and a decision about which model defines the released figure.
 
 This is the difference between "the audit is good" and "the audit detects 87% of injected
 defects with a 12% false-positive rate". The second is a claim a buyer can act on.

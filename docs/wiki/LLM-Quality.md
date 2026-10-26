@@ -169,12 +169,62 @@ contents are evidence, not instructions.
 
 ---
 
+## How well the audit actually works
+
+Everything above describes mechanism. This describes outcome, and it is measured rather than
+asserted:
+
+```
+15 injected defects · 15 found · 0 findings on a clean contract · 100% precision
+```
+
+`scripts/eval_audit.py` builds a contract that passes every check, then injects exactly one
+defect into a copy of it and asks the audit what it thinks.
+
+| Injection | Defects injected | Found | Expected category |
+| :-- | --: | --: | :-- |
+| Remove a mandatory clause | 3 | 3 | `missing_clause` |
+| Cite an evidence id nobody retrieved | 2 | 2 | `hallucination` |
+| Payment schedule that does not sum to 100 | 2 | 2 | `commercial_risk` |
+| Non-deterministic phrasing | 2 | 2 | `ambiguity` |
+| Clause body left as a placeholder | 2 | 2 | `template_deviation` |
+| Nothing traceable to evidence | 2 | 2 | `unsupported_claim` |
+| Contract drifts from the blueprint milestones | 2 | 2 | `scope_drift` |
+
+Two variants of most kinds, in different clauses, so the figure measures that the checks work
+rather than that they exist. Reproduce it:
+
+```bash
+python scripts/eval_audit.py           # the report
+python scripts/eval_audit.py --check   # exits non-zero on a regression
+```
+
+`tests/test_eval_audit.py` asserts four separate properties, because they fail for different
+reasons: a missed detection means a check stopped working, collateral findings mean a check
+fires on the wrong thing, a noisy baseline means the fixture is wrong and every number under
+it is meaningless, and the committed `docs/eval.json` matching means the README badge still
+describes this code.
+
+**What the number rules out** is the failure this category is full of: an audit that finds
+nothing, and an audit that finds everything. Both score badly here.
+
+**What it does not tell you** is in the next section.
+
+---
+
 ## What is *not* guaranteed
 
 Statements this page cannot honestly make:
 
 * **A passing contract is a correct contract.** A 0.72 score means no blocking finding was
   raised and the grounding cap did not bite. It does not mean a lawyer read it.
+* **The measurement covers mechanical defects, not judgement.** The corpus is synthetic and was
+  written alongside the checks, so it measures detection of *known defect classes*. A contract
+  that is subtly unbalanced, or that is internally consistent but commercially unwise, is
+  exactly the case this number says nothing about.
+* **Only the deterministic checker is measured.** The cloud judge costs money per call and
+  differs between providers; publishing its figure needs a pinned model, a budget and a
+  decision about which provider defines the released number.
 * **The judge is consistent between models.** `gpt-5.1` and `claude-sonnet-4-5` produce
   different finding lists for the same document. The scoring formula is stable; the findings
   it scores are not.
