@@ -1,0 +1,228 @@
+{
+  "judge": "deterministic (offline engine)",
+  "jurisdiction": "EU",
+  "injections": 15,
+  "recall": 1.0,
+  "precision": 1.0,
+  "detected": 15,
+  "clean_findings": 0,
+  "clean_categories": [],
+  "clean_passed": true,
+  "clean_quality_score": 1.0,
+  "by_injection": [
+    {
+      "injection": "missing_gdpr_clause",
+      "expected": "missing_clause",
+      "detected": true,
+      "categories_raised": [
+        "missing_clause"
+      ],
+      "finding_categories": [
+        "missing_clause"
+      ],
+      "findings": 1,
+      "passed": false,
+      "description": "Drop the GDPR clause a EU engagement cannot ship without"
+    },
+    {
+      "injection": "missing_confidentiality_clause",
+      "expected": "missing_clause",
+      "detected": true,
+      "categories_raised": [
+        "missing_clause"
+      ],
+      "finding_categories": [
+        "missing_clause"
+      ],
+      "findings": 1,
+      "passed": false,
+      "description": "Drop the confidentiality clause"
+    },
+    {
+      "injection": "missing_liability_clause",
+      "expected": "missing_clause",
+      "detected": true,
+      "categories_raised": [
+        "missing_clause"
+      ],
+      "finding_categories": [
+        "missing_clause"
+      ],
+      "findings": 1,
+      "passed": false,
+      "description": "Drop the limitation-of-liability clause"
+    },
+    {
+      "injection": "fabricated_citation",
+      "expected": "hallucination",
+      "detected": true,
+      "categories_raised": [
+        "hallucination"
+      ],
+      "finding_categories": [
+        "hallucination"
+      ],
+      "findings": 1,
+      "passed": false,
+      "description": "Cite an evidence id that was never retrieved"
+    },
+    {
+      "injection": "fabricated_citation_other_clause",
+      "expected": "hallucination",
+      "detected": true,
+      "categories_raised": [
+        "hallucination"
+      ],
+      "finding_categories": [
+        "hallucination"
+      ],
+      "findings": 1,
+      "passed": false,
+      "description": "Cite a fabricated id from a different clause"
+    },
+    {
+      "injection": "payment_schedule_short",
+      "expected": "commercial_risk",
+      "detected": true,
+      "categories_raised": [
+        "commercial_risk"
+      ],
+      "finding_categories": [
+        "commercial_risk"
+      ],
+      "findings": 1,
+      "passed": false,
+      "description": "Make the payment percentages sum to 80 instead of 100"
+    },
+    {
+      "injection": "payment_schedule_over",
+      "expected": "commercial_risk",
+      "detected": true,
+      "categories_raised": [
+        "commercial_risk"
+      ],
+      "finding_categories": [
+        "commercial_risk"
+      ],
+      "findings": 1,
+      "passed": false,
+      "description": "Make the payment percentages sum to 120 instead of 100"
+    },
+    {
+      "injection": "ambiguous_obligation",
+      "expected": "ambiguity",
+      "detected": true,
+      "categories_raised": [
+        "ambiguity"
+      ],
+      "finding_categories": [
+        "ambiguity"
+      ],
+      "findings": 1,
+      "passed": true,
+      "description": "Replace a measurable obligation with 'to be determined'"
+    },
+    {
+      "injection": "ambiguous_second_phrase",
+      "expected": "ambiguity",
+      "detected": true,
+      "categories_raised": [
+        "ambiguity"
+      ],
+      "finding_categories": [
+        "ambiguity"
+      ],
+      "findings": 1,
+      "passed": true,
+      "description": "Introduce 'best efforts' into a different clause"
+    },
+    {
+      "injection": "empty_clause",
+      "expected": "template_deviation",
+      "detected": true,
+      "categories_raised": [
+        "template_deviation"
+      ],
+      "finding_categories": [
+        "template_deviation"
+      ],
+      "findings": 1,
+      "passed": false,
+      "description": "Leave a clause body as a placeholder"
+    },
+    {
+      "injection": "empty_other_clause",
+      "expected": "template_deviation",
+      "detected": true,
+      "categories_raised": [
+        "template_deviation"
+      ],
+      "finding_categories": [
+        "template_deviation"
+      ],
+      "findings": 1,
+      "passed": false,
+      "description": "Leave a different clause body as a placeholder"
+    },
+    {
+      "injection": "ungrounded_contract",
+      "expected": "unsupported_claim",
+      "detected": true,
+      "categories_raised": [
+        "unsupported_claim"
+      ],
+      "finding_categories": [
+        "unsupported_claim"
+      ],
+      "findings": 1,
+      "passed": true,
+      "description": "Remove every citation, so nothing is traceable to evidence"
+    },
+    {
+      "injection": "ungrounded_partial",
+      "expected": "unsupported_claim",
+      "detected": true,
+      "categories_raised": [
+        "unsupported_claim"
+      ],
+      "finding_categories": [
+        "unsupported_claim"
+      ],
+      "findings": 1,
+      "passed": true,
+      "description": "Remove citations from half the clauses"
+    },
+    {
+      "injection": "scope_drift",
+      "expected": "scope_drift",
+      "detected": true,
+      "categories_raised": [
+        "scope_drift"
+      ],
+      "finding_categories": [
+        "scope_drift",
+        "scope_drift",
+        "scope_drift"
+      ],
+      "findings": 3,
+      "passed": false,
+      "description": "Replace the blueprint milestones with different ones"
+    },
+    {
+      "injection": "scope_drift_partial",
+      "expected": "scope_drift",
+      "detected": true,
+      "categories_raised": [
+        "scope_drift"
+      ],
+      "finding_categories": [
+        "scope_drift"
+      ],
+      "findings": 1,
+      "passed": true,
+      "description": "Drop one milestone of three from the contract"
+    }
+  ],
+  "collateral_categories": {},
+  "badge": "15/15 defects \u00b7 100% precision"
+}
