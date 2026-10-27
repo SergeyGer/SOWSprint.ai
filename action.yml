@@ -104,7 +104,7 @@ runs:
         fi
 
         python -m sowsprint.rag.ingest
-        python - "$brief" "$JURISDICTION" "$OUT_DIR" > run.json <<'PY'
+        python - "$brief" "$JURISDICTION" "$OUT_DIR" <<'PY'
         import json, sys
         from sowsprint.agents import ScopingSession
         from sowsprint.config import Settings
@@ -125,7 +125,12 @@ runs:
             brief, jurisdiction=jurisdiction, auto_deploy=True
         )
         c = outcome.critique
-        print(json.dumps({
+        # Written to a file rather than printed: the pipeline logs to stdout, so redirecting
+        # stdout into run.json mixed log lines with the JSON and the next `json.load` failed
+        # with "Extra data: line 1 column 5". A file the script opens itself cannot be
+        # contaminated by anything else writing to the console.
+        import pathlib
+        pathlib.Path("run.json").write_text(json.dumps({
             "passed": bool(c.passed) if c else False,
             "score": round(c.quality_score, 3) if c else None,
             "grounding": round(c.grounding_ratio, 3) if c else None,
