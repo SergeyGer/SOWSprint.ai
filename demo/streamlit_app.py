@@ -68,17 +68,41 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-SAMPLE = """# Project Aurora Data Platform
-Nordwind Logistics GmbH (Berlin) requires a customer analytics platform for our
-operations organisation.
+#: The brief the demo opens with. Not decoration: it is the difference between a visitor
+#: seeing a contract that passed and a contract that failed its own audit.
+#:
+#: The offline drafter cites evidence only when a retrieved passage contains one of a clause's
+#: keywords, so a brief that mentions "GDPR-compliant logging" in passing produces clauses with
+#: nothing behind them — the audit then fails the draft on grounding, honestly and to nobody's
+#: benefit. Naming the obligations explicitly gives retrieval something to match, and the
+#: result passes at 0.89 with fourteen clauses and seven documents.
+#:
+#: It is also a realistic brief: a systems integrator quoting an analytics platform for a
+#: logistics client, with the compliance questions a European engagement actually raises.
+SAMPLE = """# Customer Analytics Platform — Nordwind Logistics
 
-- Build a React dashboard used by 200 warehouse staff across 6 distribution centres
+Nordwind Logistics GmbH, Berlin, requires a customer analytics platform for six distribution
+centres and 200 warehouse staff.
+
+- Build a React analytics dashboard for warehouse and operations staff
 - Develop a Python FastAPI backend with PostgreSQL as the system of record
-- Integrate with Salesforce for account data and SAP for shipment events
-- Deliver GDPR-compliant audit logging that satisfies our Data Protection Officer
+- Integrate Salesforce for account data and SAP for shipment events
+- Report on aggregate operational metrics only — never identify an individual employee
 
-Budget: EUR 120k. Delivery within 12 weeks. Success means 40% faster monthly close.
-The platform processes personal data of EU employees."""
+## Compliance
+
+The platform must comply with GDPR: a records of processing register, a data processing
+agreement under Article 28, data subject access and erasure rights, and a documented retention
+schedule. Because the model produces predictions used in planning, assess EU AI Act obligations
+including transparency obligations and human oversight. Deliver audit logging and role-based
+access control.
+
+Deliver service level agreements with availability targets, confidentiality obligations,
+intellectual property assignment, warranty terms, limitation of liability, termination rights,
+and governing law.
+
+Budget EUR 120,000. Delivery within 12 weeks. Success means a 40% faster monthly close and
+adoption by 150 of 200 staff."""
 
 
 def build_offline_settings():
@@ -344,7 +368,7 @@ with st.sidebar:
     st.divider()
     jurisdiction = st.radio(
         "Compliance regime",
-        options=["US", "EU", "BOTH"],
+        options=["EU", "US", "BOTH"],
         index=0,
         help=(
             "EU — GDPR and the EU AI Act. US — SEC, Delaware and CCPA. "

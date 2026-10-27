@@ -27,9 +27,9 @@ contract together with the delivery plan to execute it.
 
 **[📖 Engineering & product wiki →](https://github.com/SergeyGer/SOWSprint.ai/wiki)**
 
-**[▶ Watch it work](docs/media/demo.mp4)** — 1:08, narrated, from a spoken brief to a
-provisioned Jira project and a Notion page. The pipeline's thinking time is compressed;
-nothing else is.
+**[▶ Watch it work](docs/media/demo.mp4)** — 1:10, narrated, from a spoken brief to the
+contract, a provisioned Jira project and a Notion page. The pipeline's thinking time is
+compressed; nothing else is.
 
 <a href="docs/media/demo.mp4"><img src="docs/media/03-transcribed.png" alt="A brief dictated by voice, transcribed, and the scope extracted from it" width="820"></a>
 
@@ -352,6 +352,33 @@ Four things took real engineering, and each is documented rather than asserted:
 | **Nothing is autonomous where it matters** | Dry-run is the default, the approval gate lists every planned call, and the report states plainly what was and was not sent |
 
 **[System design and the decisions behind it →](https://github.com/SergeyGer/SOWSprint.ai/wiki/Architecture)**
+---
+
+## Use it in a workflow
+
+The whole pipeline is a GitHub Action. It needs no API key — the deterministic engine carries
+it — and it fails the step when its own audit rejects the contract, because publishing a
+contract the audit failed is worse than stopping.
+
+```yaml
+- uses: SergeyGer/SOWSprint.ai@v2.0.0
+  id: sowsprint
+  with:
+    brief-file: brief.md        # or: brief: "one-paragraph requirement"
+    jurisdiction: EU            # EU | US | BOTH
+    output-dir: sow-out
+
+- run: echo "audit ${{ steps.sowsprint.outputs.audit-passed }},
+             score ${{ steps.sowsprint.outputs.quality-score }}"
+```
+
+It writes a Statement of Work (Markdown and PDF), a delivery backlog with testable acceptance
+criteria, a Jira-importable CSV, the quality audit and a full run report — and attaches them to
+the job. The audit verdict, score and grounding ratio are step outputs, so a workflow can gate
+on them.
+
+**[The action's inputs and outputs →](action.yml)**
+
 ---
 
 ## Documentation
