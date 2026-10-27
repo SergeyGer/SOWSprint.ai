@@ -103,7 +103,11 @@ runs:
           exit 1
         fi
 
-        python -m sowsprint.rag.ingest
+        # No separate ingest step. `python -m sowsprint.rag.ingest` builds the index with the
+        # DEFAULT settings — hash embeddings over a memory store, 141 chunks — while the run
+        # below uses the same settings, so the pre-built index is not the one the audit reads
+        # and grounding collapses. `pipeline.ensure_indexed()` inside the script builds the
+        # right index once.
         python - "$brief" "$JURISDICTION" "$OUT_DIR" <<'PY'
         import json, sys
         from sowsprint.agents import ScopingSession
