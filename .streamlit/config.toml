@@ -1,0 +1,20 @@
+# Streamlit Community Cloud reads this file from the repository, so the demo can carry the
+# application's own palette instead of Streamlit's default light theme.
+#
+# The demo is the first thing most visitors see, and it should look like the product rather
+# than like a different product built by the same people. The colours below are the ones in
+# public/custom.css, where the Chainlit application defines them.
+
+[theme]
+base = "dark"
+primaryColor = "#2563eb"          # --sow-accent
+backgroundColor = "#0b1220"       # --sow-ink
+secondaryBackgroundColor = "#131c2e"
+textColor = "#e5e7eb"
+font = "sans serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

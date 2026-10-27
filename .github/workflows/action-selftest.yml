@@ -1,0 +1,94 @@
+name: Action self-test
+
+# A composite action that is never executed is a YAML file with opinions. This runs it the way
+# a consumer would — `uses:` from the same repository at the current ref — so a broken input,
+# a missing output or a step that only works on the author's machine fails here.
+#
+# The brief is deliberately the one the demo ships with: it is known to pass, so a failure
+# means the action broke rather than the fixture.
+
+on:
+  push:
+    branches: [main]
+    paths: ["action.yml", ".github/workflows/action-selftest.yml"]
+  pull_request:
+    branches: [main]
+    paths: ["action.yml", ".github/workflows/action-selftest.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  run-the-action:
+    name: Run the action as a consumer would
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Write the brief to a file
+        run: |
+          cat > brief.md <<'BRIEF'
+          # Customer Analytics Platform — Nordwind Logistics
+
+          Nordwind Logistics GmbH, Berlin, requires a customer analytics platform for six
+          distribution centres and 200 warehouse staff.
+
+          - Build a React analytics dashboard for warehouse and operations staff
+          - Develop a Python FastAPI backend with PostgreSQL as the system of record
+          - Integrate Salesforce for account data and SAP for shipment events
+          - Report on aggregate operational metrics only — never identify an individual employee
+
+          The platform must comply with GDPR: a records of processing register, a data
+          processing agreement under Article 28, data subject access and erasure rights, and a
+          documented retention schedule. Because the model produces predictions used in
+          planning, assess EU AI Act obligations including transparency obligations and human
+          oversight. Deliver audit logging and role-based access control.
+
+          Deliver service level agreements with availability targets, confidentiality
+          obligations, intellectual property assignment, warranty terms, limitation of
+          liability, termination rights, and governing law.
+
+          Budget EUR 120,000. Delivery within 12 weeks.
+          BRIEF
+
+      - name: SOWSprint.ai
+        id: sowsprint
+        uses: ./
+        with:
+          brief-file: brief.md
+          jurisdiction: EU
+          output-dir: sowsprint-out
+
+      - name: The action reports what it claims
+        run: |
+          set -euo pipefail
+          echo "passed=${{ steps.sowsprint.outputs.audit-passed }}"
+          echo "score=${{ steps.sowsprint.outputs.quality-score }}"
+          echo "grounding=${{ steps.sowsprint.outputs.grounding-ratio }}"
+          test "${{ steps.sowsprint.outputs.audit-passed }}" = "true" \
+            || { echo "::error::the action did not report a passing audit"; exit 1; }
+          test -n "${{ steps.sowsprint.outputs.quality-score }}" \
+            || { echo "::error::quality-score output is empty"; exit 1; }
+          ls -1 sowsprint-out | head -20
+          test -f sowsprint-out/statement_of_work.md \
+            || { echo "::error::no statement of work was produced"; exit 1; }
+
+  bad-input-is-rejected:
+    name: An empty brief fails
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # A workflow that silently produces nothing when misconfigured is worse than one that
+      # stops; the action must refuse rather than draft from an empty brief.
+      - name: Expect a failure
+        id: expect
+        continue-on-error: true
+        uses: ./
+        with:
+          brief: ""
+      - name: It failed
+        if: steps.expect.outcome != 'failure'
+        run: |
+          echo "::error::the action accepted an empty brief"
+          exit 1
