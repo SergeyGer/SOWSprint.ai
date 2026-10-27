@@ -1,0 +1,152 @@
+name: "SOWSprint.ai — brief to Statement of Work"
+description: >-
+  Turn a client brief into a Statement of Work, a delivery backlog and a compliance audit.
+  Runs the deterministic engine, so it needs no API key and costs nothing.
+author: "Sergey Gerasimov"
+branding:
+  icon: "file-text"
+  color: "blue"
+
+inputs:
+  brief:
+    description: >-
+      The client brief as text. Mutually exclusive with `brief-file`; one of the two is
+      required.
+    required: false
+  brief-file:
+    description: >-
+      Path to a file containing the brief. Useful when the brief is long or already lives in
+      the repository. Takes precedence over `brief`.
+    required: false
+  jurisdiction:
+    description: >-
+      Which compliance regime to draft against: `EU`, `US` or `BOTH`. The regime determines
+      the mandatory clause set and which evidence may be retrieved.
+    required: false
+    default: "EU"
+  output-dir:
+    description: "Directory the artefacts are written to."
+    required: false
+    default: "sowsprint-out"
+  fail-on-audit-failure:
+    description: >-
+      Fail the step when the quality audit does not pass. Defaults to true: a workflow that
+      publishes a contract its own audit rejected is worse than one that stops.
+    required: false
+    default: "true"
+
+outputs:
+  audit-passed:
+    description: "`true` when the quality audit passed."
+    value: ${{ steps.run.outputs.audit-passed }}
+  quality-score:
+    description: "The audit score, 0 to 1, derived from the findings."
+    value: ${{ steps.run.outputs.quality-score }}
+  grounding-ratio:
+    description: "Share of substantive clauses traceable to retrieved evidence."
+    value: ${{ steps.run.outputs.grounding-ratio }}
+  artefacts-dir:
+    description: "Where the documents were written."
+    value: ${{ steps.run.outputs.artefacts-dir }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.11"
+
+    - name: Install SOWSprint.ai
+      shell: bash
+      # Pinned to the tag this action ships with, so an action version describes the code it
+      # runs. `main` would make every workflow that uses `uses: ...@v2` silently track a
+      # branch.
+      run: |
+        python -m pip install --quiet --upgrade pip
+        python -m pip install --quiet "sowsprint-ai @ git+https://github.com/${{ github.action_repository }}@${{ github.action_ref }}"
+
+    - name: Run the pipeline
+      id: run
+      shell: bash
+      env:
+        BRIEF: ${{ inputs.brief }}
+        BRIEF_FILE: ${{ inputs.brief-file }}
+        JURISDICTION: ${{ inputs.jurisdiction }}
+        OUT_DIR: ${{ inputs.output-dir }}
+        FAIL_ON_AUDIT: ${{ inputs.fail-on-audit-failure }}
+      run: |
+        set -euo pipefail
+        # The brief comes from a file when one is named; a long brief in a YAML input is
+        # unreadable and mangles newlines.
+        if [ -n "${BRIEF_FILE}" ]; then
+          brief="$(cat "${BRIEF_FILE}")"
+        else
+          brief="${BRIEF}"
+        fi
+        if [ -z "${brief// /}" ]; then
+          echo "::error::either 'brief' or 'brief-file' must be provided"
+          exit 1
+        fi
+
+        python -m sowsprint.rag.ingest
+        python - "$brief" "$JURISDICTION" "$OUT_DIR" > run.json <<'PY'
+        import json, sys
+        from sowsprint.agents import ScopingSession
+        from sowsprint.config import Settings
+        from sowsprint.rag.pipeline import get_pipeline
+        from sowsprint.telemetry import drop_ledger
+
+        brief, jurisdiction, out_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+        settings = Settings(
+            llm_provider="mock", critic_provider="mock", vector_backend="memory",
+            embedding_provider="hash", rerank_provider="heuristic",
+            whisper_provider="offline", dry_run_integrations=True,
+            auth_enabled=False, enable_cloud_fallback=False,
+        )
+        pipeline = get_pipeline(settings)
+        pipeline.ensure_indexed()
+        drop_ledger("action")
+        outcome = ScopingSession("action", settings=settings, pipeline=pipeline).start(
+            brief, jurisdiction=jurisdiction, auto_deploy=True
+        )
+        c = outcome.critique
+        print(json.dumps({
+            "passed": bool(c.passed) if c else False,
+            "score": round(c.quality_score, 3) if c else None,
+            "grounding": round(c.grounding_ratio, 3) if c else None,
+            "artefacts": [str(a.path) for a in (outcome.artifacts or [])],
+        }))
+        PY
+
+        passed=$(python -c "import json;print(str(json.load(open('run.json'))['passed']).lower())")
+        score=$(python -c "import json;d=json.load(open('run.json'));print(d['score'] if d['score'] is not None else '')")
+        ground=$(python -c "import json;d=json.load(open('run.json'));print(d['grounding'] if d['grounding'] is not None else '')")
+
+        echo "audit-passed=${passed}" >> "$GITHUB_OUTPUT"
+        echo "quality-score=${score}" >> "$GITHUB_OUTPUT"
+        echo "grounding-ratio=${ground}" >> "$GITHUB_OUTPUT"
+        echo "artefacts-dir=${OUT_DIR}" >> "$GITHUB_OUTPUT"
+
+        echo "### SOWSprint.ai" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "Audit: **${passed}** · score ${score} · grounding ${ground}" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        python -c "
+        import json
+        for p in json.load(open('run.json'))['artefacts']:
+            print(f'- \`{p}\`')" >> "$GITHUB_STEP_SUMMARY"
+
+        if [ "${FAIL_ON_AUDIT}" = "true" ] && [ "${passed}" != "true" ]; then
+          echo "::error::the quality audit failed — see the job summary for the findings"
+          exit 1
+        fi
+
+    - name: Upload the artefacts
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: sowsprint-artefacts
+        path: ${{ inputs.output-dir }}
+        if-no-files-found: warn
+        retention-days: 14
