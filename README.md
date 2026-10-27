@@ -27,9 +27,9 @@ contract together with the delivery plan to execute it.
 
 **[📖 Engineering & product wiki →](https://github.com/SergeyGer/SOWSprint.ai/wiki)**
 
-**[▶ Watch it work](docs/media/demo.mp4)** — 1:08, narrated, from a spoken brief to a
-provisioned Jira project and a Notion page. The pipeline's thinking time is compressed;
-nothing else is.
+**[▶ Watch it work](docs/media/demo.mp4)** — 1:10, narrated, from a spoken brief to the
+contract, a provisioned Jira project and a Notion page. The pipeline's thinking time is
+compressed; nothing else is.
 
 <a href="docs/media/demo.mp4"><img src="docs/media/03-transcribed.png" alt="A brief dictated by voice, transcribed, and the scope extracted from it" width="820"></a>
 
