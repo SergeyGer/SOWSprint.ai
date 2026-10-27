@@ -59,12 +59,26 @@ runs:
 
     - name: Install SOWSprint.ai
       shell: bash
-      # Pinned to the tag this action ships with, so an action version describes the code it
-      # runs. `main` would make every workflow that uses `uses: ...@v2` silently track a
-      # branch.
+      env:
+        ACTION_REPO: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      # Two paths, because the action runs in two ways.
+      #
+      # From another repository, `action_repository` and `action_ref` are populated, and
+      # installing from that exact ref means `uses: ...@v2.0.0` runs the code the tag names
+      # rather than whatever `main` happens to be.
+      #
+      # From the same repository — `uses: ./` — those contexts are EMPTY, and the git URL
+      # becomes `git+https://github.com/@`, which pip rejects with "empty revision". That is
+      # not a corner case: it is how the self-test runs, and it is how anyone developing the
+      # action runs it.
       run: |
         python -m pip install --quiet --upgrade pip
-        python -m pip install --quiet "sowsprint-ai @ git+https://github.com/${{ github.action_repository }}@${{ github.action_ref }}"
+        if [ -n "${ACTION_REPO}" ] && [ -n "${ACTION_REF}" ]; then
+          python -m pip install --quiet "sowsprint-ai @ git+https://github.com/${ACTION_REPO}@${ACTION_REF}"
+        else
+          python -m pip install --quiet .
+        fi
 
     - name: Run the pipeline
       id: run
