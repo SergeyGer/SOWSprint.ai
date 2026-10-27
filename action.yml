@@ -142,6 +142,25 @@ runs:
         }))
         PY
 
+        # Copy the artefacts where the caller asked for them.
+        #
+        # The engine writes to data/artifacts/<run-id>/ — the same place the application uses,
+        # because a run should be reproducible from the same path whether it came from the UI
+        # or from a workflow. `output-dir` is a destination, not a redirection, so the run-id
+        # directory is copied into it rather than assumed to be it.
+        python - "$OUT_DIR" <<'COPY'
+        import json, pathlib, shutil, sys
+
+        dest = pathlib.Path(sys.argv[1])
+        artefacts = json.loads(pathlib.Path("run.json").read_text())["artefacts"]
+        if not artefacts:
+            sys.exit("the run produced no artefacts")
+        source = pathlib.Path(artefacts[0]).parent
+        dest.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source, dest, dirs_exist_ok=True)
+        print(f"copied {len(list(dest.iterdir()))} file(s) from {source.name} to {dest}")
+        COPY
+
         passed=$(python -c "import json;print(str(json.load(open('run.json'))['passed']).lower())")
         score=$(python -c "import json;d=json.load(open('run.json'));print(d['score'] if d['score'] is not None else '')")
         ground=$(python -c "import json;d=json.load(open('run.json'));print(d['grounding'] if d['grounding'] is not None else '')")
