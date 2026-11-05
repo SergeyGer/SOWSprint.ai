@@ -1,5 +1,5 @@
 {
-  "Anthropic": "0.39.0–2.0.0",
+  "Anthropic": "0.39.0–3.0.0",
   "Chainlit": "2.0.0–3.0.0",
   "Docker": "3.11",
   "LangGraph": "0.2.60–1.3",
