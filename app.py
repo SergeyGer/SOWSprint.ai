@@ -220,6 +220,30 @@ def _settings() -> Settings:
         return get_settings()
 
 
+def _actor_id() -> str:
+    """The signed-in person, or empty when the deployment runs open.
+
+    R4.1: the author of a run is its owner, and the owner is the authenticated identity — not a
+    value typed into the chat. An open demo has no identities, so it has no reviewer either, and
+    the role check correctly refuses until one is appointed.
+    """
+    try:
+        user = cl.user_session.get("user")
+        return str(getattr(user, "identifier", "") or "")
+    except Exception:
+        return ""
+
+
+def _actor_role() -> str:
+    """The role carried on the account's metadata."""
+    try:
+        user = cl.user_session.get("user")
+        metadata = dict(getattr(user, "metadata", {}) or {})
+        return str(metadata.get("role", ""))
+    except Exception:
+        return ""
+
+
 def _jurisdiction() -> str:
     """Active compliance regime for this session."""
     return cl.user_session.get("jurisdiction") or _settings().default_jurisdiction
@@ -1797,7 +1821,30 @@ async def _provision(session: ScopingSession, approved: bool) -> None:
     await cl.Message(
         content=f"{verb} — {'provisioning the delivery workspace…' if approved else 'no external system was modified.'}"
     ).send()
-    result = await _drive(session, session.resume_approval_stream(approved))
+    result = await _drive(
+        session,
+        session.resume_approval_stream(
+            approved, actor_id=_actor_id(), actor_role=_actor_role()
+        ),
+    )
+    if result.publication.get("code") in {
+        "author_cannot_approve", "not_the_reviewer", "admin_not_appointed",
+        "role_may_not_approve", "not_a_participant",
+    }:
+        # R4.5: the card says why, in the words the person can act on.
+        await cl.Message(
+            content="\n".join(
+                [
+                    "### 🔒 Approval refused",
+                    "",
+                    f"**Why:** {result.publication.get('reason', '')}",
+                    "",
+                    "**Nothing was sent to Jira or Notion.** The contract remains available "
+                    "for review and export.",
+                ]
+            )
+        ).send()
+        return
     await _present_outcome(result)
 
 
