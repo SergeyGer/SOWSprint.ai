@@ -98,6 +98,8 @@ class GraphState(TypedDict, total=False):
     #: The publication decision as a plain dict, so it survives the checkpointer and the
     #: report. Set by the approval node and re-checked by the executor.
     publication: dict[str, Any]
+    #: R3.4: created / existing / skipped / uncertain counts, per destination.
+    operation_summary: dict[str, Any]
     #: The snapshot a reviewer approved. A later edit changes the current snapshot and this
     #: one no longer matches, which is what makes "approved version 3" mean version 3.
     approved_snapshot: str

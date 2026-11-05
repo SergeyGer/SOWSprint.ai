@@ -135,10 +135,14 @@ class AgentNodes:
         self.client = client or get_session_client(session_id, self.settings)
         self.critic_client = self._resolve_critic_client(client)
         self.pipeline = pipeline or get_pipeline(self.settings)
-        self.registry = registry or build_default_registry()
+        # The settings have to reach the connectors, or a caller that configured dry-run still
+        # writes to the live workspace.
+        self.registry = registry or build_default_registry(self.settings)
         self.router = ModelRouter(session_id, self.settings)
         self.executor = ToolExecutor(
-            self.registry, dry_run=self.settings.publication_mode == "dry_run"
+            self.registry,
+            dry_run=self.settings.publication_mode == "dry_run",
+            store=getattr(self.settings, "run_store", None),
         )
 
     def _resolve_critic_client(self, injected: BaseLLMClient | None) -> BaseLLMClient:
@@ -874,7 +878,18 @@ class AgentNodes:
             decision.code = None
             decision.reason = ""
 
-        report = self.executor.execute(plan, decision=decision)
+        report = self.executor.execute(
+            plan, decision=decision, run_id=str(state.get("run_id") or "")
+        )
+
+        # R3.4: the counts a reader can act on. "25 of 25" in the interface used to mean
+        # nothing — it could be objects this run created, objects that already existed, or a
+        # count of the whole project. The journal separates them, and names the ones whose
+        # outcome is unknown, which are the only ones that need a human.
+        journal_summary: dict[str, Any] = {}
+        if getattr(report, "journal", None) is not None:
+            summary = report.journal.summary(report.target)
+            journal_summary = summary.as_dict()
         duration = (time.perf_counter() - started) * 1000.0
         if getattr(report, "refused", False):
             return {
@@ -896,6 +911,7 @@ class AgentNodes:
 
         return {
             "integrations": [report.as_dict()],
+            "operation_summary": journal_summary,
             "stage": Stage.TOOLS.value,
             "events": [
                 _event(

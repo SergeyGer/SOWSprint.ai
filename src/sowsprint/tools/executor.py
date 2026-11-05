@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..observability.logging import get_logger
+from ..storage.store import OperationStatus
+from .journal import Journal, operation_key
 from .planner import ToolCallPlan
 from .registry import ToolExecutionResult, ToolRegistry
 
@@ -34,6 +36,10 @@ class IntegrationReport:
     #: send a reader to different places.
     refused_reason: str = ""
     refused_code: str | None = None
+    #: R3.4: what happened to each operation, bucketed so a reader can tell "created by this
+    #: run" from "already existed" from "we do not know". A single created/failed pair cannot
+    #: express the third, and the third is the one that needs a human.
+    journal: Any | None = None
 
     @property
     def refused(self) -> bool:
@@ -96,15 +102,28 @@ class ToolExecutor:
     #: issue would still name the proposed key and fail on a project that does not exist.
     REFERENCE_ARGUMENTS = ("parent_key", "project_key")
 
-    def __init__(self, registry: ToolRegistry, *, dry_run: bool = True) -> None:
+    def __init__(
+        self,
+        registry: ToolRegistry,
+        *,
+        dry_run: bool = True,
+        run_id: str = "",
+        store: Any | None = None,
+    ) -> None:
         self.registry = registry
+        #: R3: the journal keys every operation by run. A default keeps standalone use possible
+        #: without pretending the keys are meaningful across runs.
+        self.run_id = run_id or "run-standalone"
+        self.store = store
         # The executor must know the mode, not infer it from the adapters. It inferred
         # nothing before — `dry_run` stayed at its default of True while the adapters read the
         # setting themselves, so the layer that decides whether to write had no idea whether
         # writing was allowed.
         self.dry_run = dry_run
 
-    def execute(self, plan: ToolCallPlan, *, decision: Any | None = None) -> IntegrationReport:
+    def execute(
+        self, plan: ToolCallPlan, *, decision: Any | None = None, run_id: str = ""
+    ) -> IntegrationReport:
         """Execute every planned call in order, isolating failures.
 
         Release 2.1: a live batch requires a publication decision that allows it.
@@ -144,6 +163,8 @@ class ToolExecutor:
                 return blocked
 
         report = IntegrationReport()
+        journal = Journal(run_id or self.run_id, store=self.store)
+        report.journal = journal
 
         for index, call in enumerate(plan.calls, start=1):
             arguments = dict(call.arguments)
@@ -154,7 +175,27 @@ class ToolExecutor:
                 if isinstance(reference, str) and reference in report.key_map:
                     arguments[argument_name] = report.key_map[reference]
 
+            key = operation_key(self.run_id, call.tool, call.arguments, index)
+            step = journal.claim(key, call.tool, arguments=call.arguments, ordinal=index)
+
+            # R3.3: a dependent call whose predecessor did not succeed is not attempted. Running
+            # it would either fail at the destination or succeed against the wrong parent.
+            unsatisfied = self._unsatisfied_dependency(call, arguments, report)
+            if unsatisfied:
+                journal.blocked(step, blocker=unsatisfied)
+                report.results.append(
+                    ToolExecutionResult(
+                        tool=call.tool,
+                        ok=False,
+                        request=arguments,
+                        error=f"blocked: {unsatisfied} did not succeed",
+                        error_code=OperationStatus.SKIPPED.value,
+                    )
+                )
+                continue
+
             result = self.registry.execute(call.tool, arguments)
+            self._record_outcome(journal, step, result)
             report.results.append(result)
 
             if result.ok and result.resource_key:
@@ -190,6 +231,55 @@ class ToolExecutor:
         if report.results:
             report.dry_run = all(result.dry_run for result in report.results)
         return report
+
+    def _unsatisfied_dependency(
+        self, call: Any, arguments: dict[str, Any], report: IntegrationReport
+    ) -> str:
+        """Name the object this call needs that was never created.
+
+        Only `parent_key` counts. It is the one argument that refers to something an earlier call
+        in *this batch* had to create — R3.3's "epic before issue". `project_key` looks similar
+        and is not: on an issue it names a destination that normally already exists, and blocking
+        on it would refuse every plan that writes into a project it did not create this time.
+
+        A `parent_key` still holding a planner-side label after resolution refers to an epic that
+        was never made. Reporting that as a blocked dependency is more useful than letting the
+        destination reject the field — the reader learns which object is missing rather than
+        which argument was malformed.
+        """
+        reference = call.arguments.get("parent_key")
+        if not isinstance(reference, str) or not reference:
+            return ""
+        if arguments.get("parent_key") != reference:
+            return ""  # resolved to a real key
+        if reference in report.key_map:
+            return ""
+        return f"parent_key={reference}"
+
+    def _record_outcome(self, journal: Journal, step: Any, result: ToolExecutionResult) -> None:
+        """Translate one tool result into a journal verdict.
+
+        The distinction that matters: a timeout is *not* a failure. The destination may have
+        accepted the request and lost the response, and recording that as failed is what invites
+        the retry that duplicates it.
+        """
+        if result.ok:
+            if result.resource_key:
+                journal.succeeded(
+                    step, external_id=result.resource_key, external_url=result.resource_url
+                )
+            else:
+                journal.succeeded(step)
+            return
+
+        error = (result.error or "").lower()
+        if any(token in error for token in ("timeout", "timed out", "read timeout", "connect")):
+            journal.uncertain(step, error_code="timeout")
+        elif "exists" in error or "duplicate" in error:
+            # The destination already has it. That is success for this batch's purposes.
+            journal.already_present(step)
+        else:
+            journal.failed(step, error_code=(result.error or "error")[:80], detail=result.error or "")
 
     def preview(self, plan: ToolCallPlan) -> list[dict[str, Any]]:
         """Describe the batch without executing it, for the approval prompt."""
