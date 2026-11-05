@@ -167,7 +167,18 @@ class ScopingSession:
             registry=self.registry,
             settings=self.settings,
         )
+        # R2.1: the checkpoint store is durable unless the caller explicitly asks for memory.
+        #
+        # Without this the approval gate existed only in the process's memory: restart the
+        # container while a contract waited for a decision and the run was not failed, it was
+        # gone, with no record that anyone had been asked. `interrupt()` works by raising out of
+        # the node and waiting, so what it waits *in* is the whole feature.
+        if checkpointer is None:
+            from ..storage.checkpointer import build_checkpointer
+
+            checkpointer = build_checkpointer(getattr(self.settings, "checkpoint_url", "memory://"))
         self._checkpointer = checkpointer
+        self.store = getattr(self.settings, "run_store", None)
         self.graph = build_graph(self.nodes, checkpointer=checkpointer)
         self._config: dict[str, Any] = {
             "configurable": {"thread_id": self.run_id},
@@ -209,9 +220,133 @@ class ScopingSession:
         """Supply the customer's answers and continue the clarification loop."""
         return self._resume(answers)
 
-    def resume_approval(self, approved: bool) -> RunOutcome:
-        """Record the reviewer's decision at the approval gate."""
-        return self._resume(bool(approved))
+    @classmethod
+    def restore(
+        cls,
+        run_id: str,
+        *,
+        settings: Any | None = None,
+        session_id: str = "",
+        pipeline: Any | None = None,
+        checkpointer: Any | None = None,
+    ) -> ScopingSession:
+        """Reopen a saved run by its id.
+
+        R2.1: after a reload or a restart the team returns to work by the run id, not by
+        repeating the brief. The run id *is* the LangGraph thread id, so reopening it is enough
+        to read the checkpoint — the same version, the same stage, the same waiting interrupt.
+
+        Nothing is asserted here about what the run will contain. A caller asks
+        :meth:`snapshot` and gets whatever was saved; a run that never existed reads as an empty
+        state rather than an exception, because "not found" is a normal thing for a link to be.
+        """
+        resolved = settings or get_settings()
+        session = cls(
+            session_id or f"restored-{run_id[:8]}",
+            run_id=run_id,
+            settings=resolved,
+            pipeline=pipeline,
+            checkpointer=checkpointer,
+        )
+        return session
+
+    def history(self) -> list[dict[str, Any]]:
+        """Every checkpoint the graph has written for this run, oldest first.
+
+        Used by the review card to answer "how did it get here" without re-running anything.
+        """
+        rows: list[dict[str, Any]] = []
+        try:
+            for item in self.graph.get_state_history(self._config):
+                values = getattr(item, "values", {}) or {}
+                rows.append(
+                    {
+                        "stage": values.get("stage", ""),
+                        "status": values.get("status", ""),
+                        "approved": bool(values.get("approved")),
+                    }
+                )
+        except Exception as exc:
+            log.warning("session.history_unavailable", run_id=self.run_id, error=str(exc))
+        return list(reversed(rows))
+
+    def resume_approval(self, approved: bool, *, actor_id: str = "") -> RunOutcome:
+        """Record the reviewer's decision at the approval gate.
+
+        R2.2: the decision is written to the application database before the graph moves. The
+        order matters — if the process dies between the two, a decision that was made is
+        recorded but nothing was written externally, which is recoverable. The reverse leaves
+        objects in Jira with no record of who authorised them.
+        """
+        outcome = self._resume(bool(approved))
+        try:
+            self._persist_decision(outcome, approved, actor_id)
+        except Exception as exc:  # persistence must not undo a decision that was accepted
+            log.error("session.decision_not_persisted", run_id=self.run_id, error=str(exc))
+        return outcome
+
+    def _persist_decision(self, outcome: RunOutcome, approved: bool, actor_id: str) -> None:
+        """Store the run, its current revision and the decision as one story."""
+        store = self.store
+        if store is None:
+            return
+
+        from ..storage.store import DecisionRecord, EventRecord, RevisionRecord, RunRecord
+
+        publication = outcome.publication or {}
+        snapshot_hash = str(publication.get("snapshot") or "")
+        version = int(publication.get("version") or 1)
+        mode = str(publication.get("mode") or "dry_run")
+
+        store.save_run(
+            RunRecord(
+                run_id=self.run_id,
+                title=str(getattr(outcome.sow, "title", "") or "")[:400],
+                owner_id=self.session_id,
+                reviewer_id=actor_id,
+                status=outcome.status,
+                stage=outcome.stage,
+                current_version=version,
+                publication_mode=mode,
+                jurisdiction=str(getattr(outcome, "jurisdiction", "EU") or "EU"),
+                brief=str(getattr(outcome, "brief", "") or "")[:20000],
+                halt_reason=outcome.halt_reason,
+            )
+        )
+        store.save_revision(
+            RevisionRecord(
+                run_id=self.run_id,
+                number=version,
+                snapshot_hash=snapshot_hash,
+                audit_passed=bool(outcome.critique.passed) if outcome.critique else None,
+                audit_report=(
+                    outcome.critique.model_dump(mode="json") if outcome.critique else {}
+                ),
+                plan_hash=str(publication.get("plan_hash") or ""),
+                mode=mode,
+                destinations=list(publication.get("destinations") or []),
+                artifacts=[a.path for a in (outcome.artifacts or [])],
+            )
+        )
+        store.save_decision(
+            DecisionRecord(
+                run_id=self.run_id,
+                revision=version,
+                snapshot_hash=snapshot_hash,
+                mode=mode,
+                actor_id=actor_id or self.session_id,
+                decision="approve" if approved else "reject",
+            )
+        )
+        store.add_event(
+            EventRecord(
+                run_id=self.run_id,
+                actor_id=actor_id or self.session_id,
+                action="approve" if approved else "reject",
+                version=version,
+                result=outcome.status,
+            )
+        )
 
     # ------------------------------------------------------------------ revision
     def revise(
