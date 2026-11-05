@@ -93,6 +93,15 @@ class GraphState(TypedDict, total=False):
     pending_questions: list[dict[str, Any]]
     approved: bool
     halt_reason: str
+    #: `dry_run` or `live`, resolved once at the start of the run from the settings.
+    publication_mode: str
+    #: The publication decision as a plain dict, so it survives the checkpointer and the
+    #: report. Set by the approval node and re-checked by the executor.
+    publication: dict[str, Any]
+    #: The snapshot a reviewer approved. A later edit changes the current snapshot and this
+    #: one no longer matches, which is what makes "approved version 3" mean version 3.
+    approved_snapshot: str
+    snapshot: dict[str, Any]
 
     # ---------------------------------------------------------------- outputs
     artifacts: list[dict[str, Any]]
@@ -112,8 +121,14 @@ def initial_state(
     raw_requirement: str,
     jurisdiction: str = "EU",
     auto_deploy: bool = False,
+    publication_mode: str = "dry_run",
 ) -> GraphState:
-    """Build the entry state for a fresh run."""
+    """Build the entry state for a fresh run.
+
+    `publication_mode` is resolved from the settings once, here, rather than read from the
+    environment at each decision point. A run whose mode can change underneath it is a run
+    where an approval means something different by the time it is used.
+    """
     return GraphState(
         session_id=session_id,
         run_id=run_id,
@@ -121,6 +136,10 @@ def initial_state(
         jurisdiction=jurisdiction,
         clarification_answers="",
         auto_deploy=auto_deploy,
+        publication_mode=publication_mode,
+        publication={},
+        approved_snapshot="",
+        snapshot={},
         scope=None,
         blueprint=None,
         draft_sow=None,

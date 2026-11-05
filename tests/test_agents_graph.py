@@ -227,7 +227,37 @@ class TestRouting:
         state: GraphState = {"status": RunStatus.RUNNING.value, "approved": False}
         assert routers["after_approval"](state) == "finalize"
         state["approved"] = True
+        assert routers["after_approval"](state) == "finalize"
+
+    def test_a_recorded_approval_is_not_permission_to_write(self, routers: dict) -> None:
+        """Release 2.1, R1.4: `approved` alone must not reach the executor.
+
+        Before 2.1 this router returned "tools" as soon as `approved` was true, which is how a
+        contract whose audit had failed got provisioned: the flag recorded that a person
+        clicked, not that what they clicked was still valid. The decision now has to be in the
+        state as well — it carries the snapshot the approval was bound to.
+        """
+        state: GraphState = {
+            "status": RunStatus.RUNNING.value,
+            "approved": True,
+            "publication": {"allowed": True, "code": None, "reason": ""},
+        }
         assert routers["after_approval"](state) == "tools"
+
+        state["publication"] = {"allowed": False, "code": "version_stale", "reason": "changed"}
+        assert routers["after_approval"](state) == "finalize"
+
+    def test_live_mode_never_auto_deploys(self, routers: dict) -> None:
+        """R1.4: automatic execution is for dry-run and local export only.
+
+        `auto_deploy=True` used to go from the plan straight to the executor. In live mode it
+        now goes to the approval gate, because a plan is not a decision.
+        """
+        live: GraphState = {"auto_deploy": True, "publication_mode": "live"}
+        assert routers["after_plan_tools"](live) == "approval"
+
+        dry: GraphState = {"auto_deploy": True, "publication_mode": "dry_run"}
+        assert routers["after_plan_tools"](dry) == "tools"
 
 
 # --------------------------------------------------------------------------------------
