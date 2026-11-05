@@ -239,9 +239,12 @@ class EventRecord:
 class _Dialect(Protocol):
     """The part of SQL that differs between the two engines."""
 
+    #: `?` for SQLite, `%s` for Postgres. The only thing about the two dialects that a caller
+    #: has to know, which is why it is the only member besides the connection itself.
     placeholder: str
 
-    def connect(self) -> Any: ...
+    def connect(self) -> Any:
+        """Open a connection configured for this backend."""
 
 
 class _SQLiteDialect:
