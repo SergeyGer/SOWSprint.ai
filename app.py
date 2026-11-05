@@ -1090,8 +1090,10 @@ async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
             lines += [
                 f"**Why:** {publication.get('reason', '')}",
                 "",
-                "**Nothing has been sent to Jira or Notion.** The contract, the audit and the "
-                "plan above remain available for review and export.",
+                (
+                    "**Nothing has been sent to Jira or Notion.** The contract, the audit and "
+                    "the plan above remain available for review and export."
+                ),
                 "",
             ]
         else:
