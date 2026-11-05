@@ -222,6 +222,19 @@ class Settings(BaseSettings):
 
     dry_run_integrations: bool = True
 
+    #: Release 2.1, R2.2. Where runs, revisions, decisions and operations are kept.
+    #:
+    #: `sqlite:///…` is the default because the offline example and CI must keep a mode without
+    #: a database server, and a test suite that needs one is a test suite people run less
+    #: often. The pilot sets `postgresql://…`; the same SQL runs against both, so the pilot does
+    #: not exercise code that CI never touched.
+    state_store_url: str = "sqlite:///data/runs.db"
+
+    #: LangGraph checkpoints, bound to a stable run id. `memory://` restores the old behaviour
+    #: and is used by tests: a run that waits for an approval survives a restart only when this
+    #: points at something durable.
+    checkpoint_url: str = "sqlite:///data/checkpoints.db"
+
     # ---------------------------------------------------------------- authentication
     # On by default. The application spends real money on model calls and writes to
     # Jira and Notion, and it binds 0.0.0.0 so a phone on the same Wi-Fi can reach it —
@@ -399,6 +412,22 @@ class Settings(BaseSettings):
                 )
         today = date.today()
         return today + timedelta(days=(7 - today.weekday()) % 7 or 7)
+
+    @property
+    def run_store(self) -> Any:
+        """The application database, opened once per process.
+
+        Lazily, because constructing it creates tables. A CLI command that only prints help has
+        no business creating a schema, and an import that has that side effect is an import
+        nobody can use in a test without a temporary directory.
+        """
+        cached = getattr(self, "_run_store_cache", None)
+        if cached is None:
+            from .storage.store import RunStore
+
+            cached = RunStore.from_url(self.state_store_url)
+            object.__setattr__(self, "_run_store_cache", cached)
+        return cached
 
     @property
     def publication_mode(self) -> str:

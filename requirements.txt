@@ -3,6 +3,11 @@
 # ---------------------------------------------------------------------------
 # Agentic orchestration
 langgraph>=0.2.60,<1.3
+# Release 2.1, R2: durable checkpoints so a run waiting for approval survives a
+# restart, and a Postgres path for the pilot. Both are inert unless configured —
+# the offline example and CI keep memory:// and SQLite.
+langgraph-checkpoint-sqlite>=2.0.0,<4.0.0
+psycopg[binary]>=3.2,<4.0
 langchain-core>=0.3.25,<1.8
 langchain-text-splitters>=0.3.2,<1.2
 
