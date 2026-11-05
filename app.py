@@ -1864,8 +1864,10 @@ async def _provision(session: ScopingSession, approved: bool) -> None:
                     "",
                     f"**Why:** {result.publication.get('reason', '')}",
                     "",
-                    "**Nothing was sent to Jira or Notion.** The contract remains available "
-                    "for review and export.",
+                    (
+                        "**Nothing was sent to Jira or Notion.** The contract remains "
+                        "available for review and export."
+                    ),
                 ]
             )
         ).send()
