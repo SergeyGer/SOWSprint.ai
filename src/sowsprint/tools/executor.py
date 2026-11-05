@@ -28,6 +28,16 @@ class IntegrationReport:
     #: Maps a blueprint epic key to the Jira key it was created under, so stories can
     #: be linked even when the planner could not know the generated key in advance.
     key_map: dict[str, str] = field(default_factory=dict)
+    #: Set when the batch was refused before anything was sent. A refused report is not a
+    #: failed one: nothing was attempted, and the reason is a policy decision rather than an
+    #: error from a destination. The interface says "blocked", not "failed", because those
+    #: send a reader to different places.
+    refused_reason: str = ""
+    refused_code: str | None = None
+
+    @property
+    def refused(self) -> bool:
+        return bool(self.refused_code) and not self.results
 
     @property
     def created(self) -> list[ToolExecutionResult]:
@@ -86,11 +96,26 @@ class ToolExecutor:
     #: issue would still name the proposed key and fail on a project that does not exist.
     REFERENCE_ARGUMENTS = ("parent_key", "project_key")
 
-    def __init__(self, registry: ToolRegistry) -> None:
+    def __init__(self, registry: ToolRegistry, *, dry_run: bool = True) -> None:
         self.registry = registry
+        # The executor must know the mode, not infer it from the adapters. It inferred
+        # nothing before — `dry_run` stayed at its default of True while the adapters read the
+        # setting themselves, so the layer that decides whether to write had no idea whether
+        # writing was allowed.
+        self.dry_run = dry_run
 
-    def execute(self, plan: ToolCallPlan) -> IntegrationReport:
+    def execute(self, plan: ToolCallPlan, *, decision: Any | None = None) -> IntegrationReport:
         """Execute every planned call in order, isolating failures.
+
+        Release 2.1: a live batch requires a publication decision that allows it.
+
+        The check is here, in the one place every write passes through, rather than in the
+        graph. A rule in the router is a rule the CLI, the API and a resumed checkpoint each
+        have to remember; this one cannot be routed around, because routing around it means
+        not calling the executor at all.
+
+        Dry-run is unaffected — it validates and sends nothing, so there is nothing to gate.
+
 
         Key resolution: a caller cannot know the key Jira will generate for an epic
         that does not exist yet, so the planner tags each issue with a ``client_ref``
@@ -99,6 +124,25 @@ class ToolExecutor:
         arguments. Without this, a live run would file every story against a
         non-existent parent.
         """
+        if not self.dry_run:
+            from ..policy import PublicationMode, evaluate_publication
+
+            resolved = decision
+            if resolved is None:
+                # No decision supplied means nobody established that publishing is allowed.
+                # Defaulting to "go ahead" is exactly the defect this release exists to fix.
+                resolved = evaluate_publication(mode=PublicationMode.LIVE, audit_passed=None)
+            if not resolved.allowed:
+                log.warning(
+                    "tools.publication_blocked",
+                    code=getattr(resolved.code, "value", None),
+                    reason=resolved.reason,
+                )
+                blocked = IntegrationReport()
+                blocked.refused_reason = resolved.reason
+                blocked.refused_code = getattr(resolved.code, "value", None)
+                return blocked
+
         report = IntegrationReport()
 
         for index, call in enumerate(plan.calls, start=1):

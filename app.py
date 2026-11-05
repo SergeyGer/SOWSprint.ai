@@ -1066,29 +1066,72 @@ async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
         ]
         if outcome.critique:
             verdict = "PASSED" if outcome.critique.passed else "FAILED"
+            version = (outcome.publication or {}).get("version") or 1
             lines += [
-                f"**Quality audit: {verdict}** — score {outcome.critique.quality_score:.2f}, "
+                f"**Version {version}** · quality audit **{verdict}** — "
+                f"score {outcome.critique.quality_score:.2f}, "
                 f"grounding {outcome.critique.grounding_ratio:.0%}, "
                 f"{len(outcome.critique.findings)} finding(s).",
                 "",
             ]
+
+        # R5.1: version, verdict, why it is blocked, and what to do next — before anything
+        # about destinations. The reviewer's first question is "is this publishable", not
+        # "where does it go".
+        publication = outcome.publication or {}
+        live = str(publication.get("mode", "dry_run")) == "live"
+        blocked = live and not publication.get("allowed", True)
+
+        if blocked:
+            # The heading itself has to say blocked. A card reading "ready" above a disabled
+            # button is the interface telling two stories at once, which is how the original
+            # defect survived being recorded in a demo and watched.
+            lines[0] = f"{prefix}### 🔒 Publishing blocked — review required"
+            lines += [
+                f"**Why:** {publication.get('reason', '')}",
+                "",
+                "**Nothing has been sent to Jira or Notion.** The contract, the audit and the "
+                "plan above remain available for review and export.",
+                "",
+            ]
+        else:
+            lines += [
+                (
+                    "**Mode: live** — approving creates the objects listed below."
+                    if live
+                    else "**Mode: dry-run** — every call is validated and nothing is sent."
+                ),
+                "",
+            ]
+
         lines += _approval_summary(outcome)
-        lines += ["", "_Use the buttons below, or reply `approve` / `reject`._"]
-        await cl.Message(
-            content="\n".join(lines),
-            actions=[
+
+        actions = [
+            cl.Action(
+                name="reject_contract",
+                payload={"decision": "reject"},
+                label="🛑 Reject",
+            )
+        ]
+        if not blocked:
+            # The approve action exists only when the server would honour it. A disabled
+            # button still says "this is the thing you would do"; an absent one does not.
+            actions.insert(
+                0,
                 cl.Action(
                     name="approve_contract",
                     payload={"decision": "approve"},
                     label="✅ Approve & provision",
                 ),
-                cl.Action(
-                    name="reject_contract",
-                    payload={"decision": "reject"},
-                    label="🛑 Reject",
-                ),
-            ],
-        ).send()
+            )
+        lines += [
+            "",
+            (
+                "_The approval is bound to this version. Editing the contract, the plan or the "
+                "destinations requires a new audit and a new decision._"
+            ),
+        ]
+        await cl.Message(content="\n".join(lines), actions=actions).send()
         await _update_dashboard(_session())
         return
 

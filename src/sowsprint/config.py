@@ -401,6 +401,17 @@ class Settings(BaseSettings):
         return today + timedelta(days=(7 - today.weekday()) % 7 or 7)
 
     @property
+    def publication_mode(self) -> str:
+        """Whether this deployment may write outside the system.
+
+        One setting decides it. `dry_run_integrations` was already the switch every adapter
+        consulted, so it is the honest source for the publication mode too — two switches for
+        one decision is how a run ends up in a state where the adapters think they are live and
+        the executor thinks it is not.
+        """
+        return "dry_run" if self.dry_run_integrations else "live"
+
+    @property
     def enabled_artifacts(self) -> set[str] | None:
         """The artefact kinds to render, or None for all of them."""
         from .models import ARTIFACT_KINDS

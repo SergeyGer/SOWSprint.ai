@@ -70,6 +70,11 @@ class RunOutcome:
     halt_reason: str = ""
     errors: list[str] = field(default_factory=list)
 
+    #: Release 2.1, R1/R5: whether this run may write externally, and why.
+    #: Carried on the outcome so the interface renders a decision rather than re-deriving one
+    #: from the verdict — two places computing the same policy is how they come to disagree.
+    publication: dict[str, Any] = field(default_factory=dict)
+
     @property
     def is_waiting(self) -> bool:
         return self.status in WAITING_STATUSES
@@ -188,6 +193,7 @@ class ScopingSession:
             raw_requirement=requirement,
             jurisdiction=jurisdiction,
             auto_deploy=auto_deploy,
+            publication_mode=self.settings.publication_mode,
         )
         log.info(
             "session.start",
@@ -195,6 +201,7 @@ class ScopingSession:
             jurisdiction=jurisdiction,
             chars=len(requirement),
             auto_deploy=auto_deploy,
+            publication_mode=self.settings.publication_mode,
         )
         return self._drive(state)
 
@@ -399,6 +406,7 @@ class ScopingSession:
             raw_requirement=requirement,
             jurisdiction=jurisdiction,
             auto_deploy=auto_deploy,
+            publication_mode=self.settings.publication_mode,
         )
         log.info(
             "session.start",
@@ -406,6 +414,7 @@ class ScopingSession:
             jurisdiction=jurisdiction,
             chars=len(requirement),
             auto_deploy=auto_deploy,
+            publication_mode=self.settings.publication_mode,
         )
         yield from self._stream(state)
 
@@ -521,6 +530,7 @@ class ScopingSession:
             retrieval=dict(state.get("retrieval_diagnostics") or {}),
             halt_reason=str(state.get("halt_reason", "")),
             errors=list(state.get("errors") or []),
+            publication=dict(state.get("publication") or {}),
             cost=tracker.get_ledger(self.session_id).report(),
         )
 

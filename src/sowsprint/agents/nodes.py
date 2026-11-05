@@ -45,6 +45,7 @@ from ..models import (
     verify_missing_clause_findings,
 )
 from ..observability.logging import get_logger
+from ..policy import Snapshot, evaluate_publication
 from ..rag.pipeline import RagPipeline, get_pipeline
 from ..telemetry import tracker
 from ..tools.executor import ToolExecutor
@@ -136,7 +137,9 @@ class AgentNodes:
         self.pipeline = pipeline or get_pipeline(self.settings)
         self.registry = registry or build_default_registry()
         self.router = ModelRouter(session_id, self.settings)
-        self.executor = ToolExecutor(self.registry)
+        self.executor = ToolExecutor(
+            self.registry, dry_run=self.settings.publication_mode == "dry_run"
+        )
 
     def _resolve_critic_client(self, injected: BaseLLMClient | None) -> BaseLLMClient:
         """Give the Critic its own client when it runs on a different provider.
@@ -792,8 +795,38 @@ class AgentNodes:
         )
         approved = bool(decision)
 
+        # R1.1 / R1.2: record what was approved, and whether that approval permits writing.
+        #
+        # The decision is made here, once, and carried in the state so the executor can refuse
+        # on its own terms. Evaluating it only in the interface would leave the CLI, the API
+        # and a resumed checkpoint with no check at all.
+        current = _snapshot(state)
+        publication = evaluate_publication(
+            mode=state.get("publication_mode", "dry_run"),
+            audit_passed=_audit_passed(state),
+            audit_degraded=_audit_degraded(state),
+            approved=approved,
+            approved_snapshot=current.digest if approved else None,
+            current_snapshot=current,
+        )
+        if publication.blocked and approved:
+            log.warning(
+                "approval.blocked_after_consent",
+                code=publication.code.value if publication.code else None,
+                reason=publication.reason,
+            )
+
         return {
             "approved": approved,
+            "approved_snapshot": current.digest if approved else "",
+            "snapshot": {
+                "digest": current.digest,
+                "short": current.short,
+                "version": current.version,
+                "plan_hash": current.plan_hash,
+                "destinations": list(current.destinations),
+            },
+            "publication": publication.as_dict(),
             "stage": Stage.APPROVAL.value,
             "status": RunStatus.RUNNING.value if approved else RunStatus.FAILED.value,
             "halt_reason": "" if approved else "Contract rejected by the reviewer at the approval gate.",
@@ -821,8 +854,45 @@ class AgentNodes:
 
         calls = state.get("tool_calls") or []
         plan = ToolCallPlan.model_validate({"summary": "", "calls": calls})
-        report = self.executor.execute(plan)
+
+        # R1.4: the same policy the approval gate applied, evaluated again at the point of
+        # writing. Re-checking is not redundant: state can be resumed from a checkpoint, and a
+        # checkpoint written before an edit describes a document that no longer exists.
+        current = _snapshot(state)
+        decision = evaluate_publication(
+            mode=state.get("publication_mode", "dry_run"),
+            audit_passed=_audit_passed(state),
+            audit_degraded=_audit_degraded(state),
+            approved=bool(state.get("approved")),
+            approved_snapshot=str(state.get("approved_snapshot") or "") or None,
+            current_snapshot=current,
+            completed=bool(state.get("integrations")),
+        )
+        if self.executor.dry_run:
+            # Dry-run validates and sends nothing; the policy has nothing to refuse.
+            decision.allowed = True
+            decision.code = None
+            decision.reason = ""
+
+        report = self.executor.execute(plan, decision=decision)
         duration = (time.perf_counter() - started) * 1000.0
+        if getattr(report, "refused", False):
+            return {
+                "integrations": [report.as_dict()],
+                "publication": decision.as_dict(),
+                "stage": Stage.TOOLS.value,
+                "events": [
+                    _event(
+                        "tools",
+                        Stage.TOOLS,
+                        "Provisioning blocked",
+                        detail=report.refused_reason,
+                        status="blocked",
+                        duration_ms=duration,
+                        payload={"code": report.refused_code},
+                    )
+                ],
+            }
 
         return {
             "integrations": [report.as_dict()],
@@ -904,6 +974,46 @@ class AgentNodes:
 # --------------------------------------------------------------------------------------
 
 
+def _audit_passed(state: GraphState) -> bool | None:
+    """The verdict, or None when there is no report to have a verdict about."""
+    critique = state.get("critique")
+    if not isinstance(critique, dict):
+        return None
+    return bool(critique.get("passed"))
+
+
+def _audit_degraded(state: GraphState) -> bool:
+    """True when the audit fell back and its findings cannot be trusted."""
+    critique = state.get("critique")
+    return bool(isinstance(critique, dict) and critique.get("degraded"))
+
+
+def _snapshot(state: GraphState) -> Snapshot:
+    """The canonical snapshot of what this run would publish.
+
+    Built from the SOW, the backlog and the planned calls. Destinations are derived from the
+    plan rather than from configuration, so a plan that grew a Notion call while Notion was
+    off cannot be approved under the old, narrower description.
+    """
+    calls = state.get("tool_calls") or []
+    destinations = sorted(
+        {
+            "jira" if str(call.get("tool", "")).startswith("create_jira") else "notion"
+            for call in calls
+            if str(call.get("tool", "")).startswith(("create_jira", "create_notion"))
+        }
+    )
+    blueprint = state.get("blueprint") or {}
+    return Snapshot.build(
+        sow=state.get("draft_sow"),
+        backlog=blueprint,
+        plan={"calls": calls},
+        destinations=destinations,
+        version=int((state.get("critique") or {}).get("attempt", 0)) + 1,
+        audit_id=str((state.get("critique") or {}).get("summary", ""))[:16],
+    )
+
+
 def _terminal(state: GraphState) -> bool:
     return str(state.get("status", "")) in TERMINAL_STATUSES
 
@@ -960,14 +1070,37 @@ def make_routers() -> dict[str, Callable[[GraphState], str]]:
         return "plan_tools"
 
     def after_plan_tools(state: GraphState) -> str:
+        """The gate that `auto_deploy` used to jump over.
+
+        Release 2.1, R1.4: automatic execution is allowed for dry-run and local export only.
+        A live run reaches Jira and Notion through a human decision and nothing else — before
+        this, `auto_deploy=True` went from the plan straight to the executor, so a contract
+        whose audit had failed could be provisioned in one uninterrupted step.
+
+        Dry-run keeps the shortcut because it writes nothing: requiring a click to validate a
+        plan that is thrown away would remove the one operation that is safe by construction.
+        """
         if _terminal(state):
             return "end"
+
+        live = state.get("publication_mode", "dry_run") == "live"
+        if live:
+            return "approval"
         return "tools" if state.get("auto_deploy") else "approval"
 
     def after_approval(state: GraphState) -> str:
+        """A decision recorded in the state is not permission to write.
+
+        The approval node records what a person chose. This router asks the publication policy
+        whether that choice still applies to *this* document — an approval granted for version
+        3 does not authorise version 4, and the state alone cannot tell the difference.
+        """
         if str(state.get("status")) == RunStatus.FAILED.value:
             return "finalize"
-        return "tools" if state.get("approved") else "finalize"
+        if not state.get("approved"):
+            return "finalize"
+        decision = state.get("publication") or {}
+        return "tools" if decision.get("allowed") else "finalize"
 
     def after_tools(state: GraphState) -> str:
         return "finalize"
