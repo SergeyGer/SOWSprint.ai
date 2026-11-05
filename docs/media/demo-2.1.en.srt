@@ -1,0 +1,31 @@
+1
+00:00:00,000 --> 00:00:13,650
+Turn a client brief into a draft statement of work, a delivery backlog and
+an audit report. Here the brief arrives by voice, and the words appear in
+the message box while they are spoken.
+
+2
+00:00:14,000 --> 00:00:33,650
+The audit runs before anything is published. When it fails, publishing is
+blocked and the reason is shown. A repair pass lifts the score, and the new
+version passes.
+
+3
+00:00:34,000 --> 00:00:49,650
+The approval is bound to this version, not to the run. The card states the
+version, the mode, and exactly what will be created.
+
+4
+00:00:50,000 --> 00:01:05,650
+Every external call is journalled with a key that is stable across attempts,
+so a retry cannot create a second epic.
+
+5
+00:01:06,000 --> 00:01:19,650
+In dry-run every call is validated and nothing is sent. That is the shipping
+default, and the card says so.
+
+6
+00:01:20,000 --> 00:01:43,650
+Try the offline demo without API keys, or open the repository for the full
+Docker setup. This is a draft for human review.

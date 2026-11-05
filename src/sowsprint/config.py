@@ -228,6 +228,12 @@ class Settings(BaseSettings):
     #: a database server, and a test suite that needs one is a test suite people run less
     #: often. The pilot sets `postgresql://…`; the same SQL runs against both, so the pilot does
     #: not exercise code that CI never touched.
+    #: Release 2.1, R4: who may approve a run when the deployment has one named account.
+    #:
+    #: Empty by default, which means nobody — the honest state. A demo sets it to a second
+    #: identity so the approval gate can be exercised without inventing a user directory.
+    default_reviewer: str = ""
+
     state_store_url: str = "sqlite:///data/runs.db"
 
     #: LangGraph checkpoints, bound to a stable run id. `memory://` restores the old behaviour

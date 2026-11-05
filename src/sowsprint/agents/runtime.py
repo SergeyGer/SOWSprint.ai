@@ -145,8 +145,13 @@ class ScopingSession:
         registry: ToolRegistry | None = None,
         checkpointer: Any | None = None,
         run_id: str | None = None,
+        owner_id: str = "",
     ) -> None:
         self.session_id = session_id
+        #: Who owns this run. Defaults to the session, which is unique per connection; the
+        #: application passes the authenticated user instead, because a reviewer opening the run
+        #: from a new tab has a new session id and must still be judged against the same author.
+        self.owner_id = owner_id or session_id
         self.settings = settings or get_settings()
         self.run_id = run_id or f"run-{uuid.uuid4().hex[:12]}"
         self.started_at = datetime.utcnow()
@@ -336,7 +341,7 @@ class ScopingSession:
         """
         if not reviewer_id:
             raise ValueError("a reviewer id is required")
-        if reviewer_id == self.session_id:
+        if reviewer_id == self.owner_id:
             raise ValueError("the author cannot appoint themselves as reviewer")
         if self.store is not None:
             record = self.store.get_run(self.run_id)
@@ -358,7 +363,7 @@ class ScopingSession:
             record = self.store.get_run(self.run_id)
             if record is not None and record.owner_id:
                 return record.owner_id
-        return self.session_id
+        return self.owner_id
 
     def _run_reviewer(self) -> str:
         """Who is appointed to review this run. Empty until the first decision records one."""
@@ -385,7 +390,7 @@ class ScopingSession:
             RunRecord(
                 run_id=self.run_id,
                 title=str(getattr(outcome.sow, "title", "") or "")[:400],
-                owner_id=self.session_id,
+                owner_id=self.owner_id,
                 reviewer_id=actor_id or getattr(self, "_pending_reviewer", ""),
                 status=outcome.status,
                 stage=outcome.stage,
