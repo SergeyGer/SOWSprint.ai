@@ -234,6 +234,21 @@ def _actor_id() -> str:
         return ""
 
 
+def _ensure_reviewer(session: ScopingSession) -> None:
+    """Appoint the configured reviewer if the run has none.
+
+    R4.1 keeps the rule — the reviewer is set on the run. What a one-account deployment needs is
+    a way to satisfy it, and a setting is honest about what it is: an operator naming who signs
+    off, not the application pretending anyone may.
+    """
+    reviewer = (_settings().default_reviewer or "").strip()
+    if not reviewer:
+        return
+    # The author cannot appoint themselves; the refusal is the correct outcome, not an error.
+    with contextlib.suppress(ValueError):
+        session.appoint_reviewer(reviewer)
+
+
 def _actor_role() -> str:
     """The role carried on the account's metadata."""
     try:
@@ -1743,7 +1758,9 @@ async def _start_run(requirement: str) -> None:
     get_ledger(session_id).budget_usd = settings.session_budget_usd
 
     pipeline = get_pipeline(settings)
-    session = ScopingSession(session_id, settings=settings, pipeline=pipeline)
+    session = ScopingSession(
+        session_id, settings=settings, pipeline=pipeline, owner_id=_actor_id() or session_id
+    )
     cl.user_session.set("scoping_session", session)
     cl.user_session.set("dashboard_msg", None)
     cl.user_session.set("activity_msg", None)
@@ -1819,8 +1836,16 @@ async def _provision(session: ScopingSession, approved: bool) -> None:
     """Resume the graph past the approval gate."""
     verb = "✅ Approved" if approved else "🛑 Rejected"
     await cl.Message(
-        content=f"{verb} — {'provisioning the delivery workspace…' if approved else 'no external system was modified.'}"
+        content=(
+            f"{verb} — "
+            + (
+                "provisioning the delivery workspace…"
+                if approved
+                else "no external system was modified."
+            )
+        )
     ).send()
+    _ensure_reviewer(session)
     result = await _drive(
         session,
         session.resume_approval_stream(
