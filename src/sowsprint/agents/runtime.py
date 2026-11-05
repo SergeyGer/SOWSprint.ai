@@ -276,7 +276,9 @@ class ScopingSession:
             log.warning("session.history_unavailable", run_id=self.run_id, error=str(exc))
         return list(reversed(rows))
 
-    def resume_approval(self, approved: bool, *, actor_id: str = "") -> RunOutcome:
+    def resume_approval(
+        self, approved: bool, *, actor_id: str = "", actor_role: str = ""
+    ) -> RunOutcome:
         """Record the reviewer's decision at the approval gate.
 
         R2.2: the decision is written to the application database before the graph moves. The
@@ -284,12 +286,87 @@ class ScopingSession:
         recorded but nothing was written externally, which is recoverable. The reverse leaves
         objects in Jira with no record of who authorised them.
         """
+        # R4.1 / R4.2: the check is here, on the server, before the graph moves.
+        #
+        # A button that is not rendered is a suggestion. This is the control: any caller — the
+        # interface, an API route, a script — reaches the same function, and the rule that the
+        # author of a contract cannot approve it is enforced once rather than remembered
+        # everywhere.
+        if actor_id:
+            from ..security.roles import can_approve
+
+            owner = self._run_owner()
+            reviewer = self._run_reviewer()
+            verdict = can_approve(
+                actor_id=actor_id,
+                role=actor_role or "",
+                run_owner=owner,
+                run_reviewer=reviewer,
+            )
+            if not verdict.allowed:
+                log.warning(
+                    "approval.refused",
+                    run_id=self.run_id,
+                    actor=actor_id,
+                    code=verdict.code.value if verdict.code else None,
+                )
+                current = self.snapshot()
+                current.publication = {
+                    **(current.publication or {}),
+                    "allowed": False,
+                    "code": verdict.code.value if verdict.code else None,
+                    "reason": verdict.reason,
+                }
+                self.last_outcome = current
+                return current
+
         outcome = self._resume(bool(approved))
         try:
             self._persist_decision(outcome, approved, actor_id)
         except Exception as exc:  # persistence must not undo a decision that was accepted
             log.error("session.decision_not_persisted", run_id=self.run_id, error=str(exc))
         return outcome
+
+    def appoint_reviewer(self, reviewer_id: str) -> None:
+        """Name the person who may approve this run.
+
+        R4.1: the reviewer is set on the run, not in the environment. Until this is called, a
+        run has an author and nobody entitled to approve it — which is the honest state and the
+        one that produces a useful refusal rather than a silent self-approval.
+        """
+        if not reviewer_id:
+            raise ValueError("a reviewer id is required")
+        if reviewer_id == self.session_id:
+            raise ValueError("the author cannot appoint themselves as reviewer")
+        if self.store is not None:
+            record = self.store.get_run(self.run_id)
+            if record is not None:
+                record.reviewer_id = reviewer_id
+                self.store.save_run(record, touch=False)
+                return
+        # No record yet: remember it so the first persistence writes it.
+        self._pending_reviewer = reviewer_id
+
+    def _run_owner(self) -> str:
+        """Who started this run.
+
+        Read from the store when the run has been saved, and from the session otherwise. The
+        store is authoritative because it survives a restart: a reviewer reopening the run must
+        be refused for the same reason the author was refused, not for a fresh one.
+        """
+        if self.store is not None:
+            record = self.store.get_run(self.run_id)
+            if record is not None and record.owner_id:
+                return record.owner_id
+        return self.session_id
+
+    def _run_reviewer(self) -> str:
+        """Who is appointed to review this run. Empty until the first decision records one."""
+        if self.store is not None:
+            record = self.store.get_run(self.run_id)
+            if record is not None and record.reviewer_id:
+                return record.reviewer_id
+        return getattr(self, "_pending_reviewer", "")
 
     def _persist_decision(self, outcome: RunOutcome, approved: bool, actor_id: str) -> None:
         """Store the run, its current revision and the decision as one story."""
@@ -309,7 +386,7 @@ class ScopingSession:
                 run_id=self.run_id,
                 title=str(getattr(outcome.sow, "title", "") or "")[:400],
                 owner_id=self.session_id,
-                reviewer_id=actor_id,
+                reviewer_id=actor_id or getattr(self, "_pending_reviewer", ""),
                 status=outcome.status,
                 stage=outcome.stage,
                 current_version=version,
@@ -563,8 +640,39 @@ class ScopingSession:
         """Stream the graph forward after the customer answers the questions."""
         yield from self._stream(self._resume_payload(answers))
 
-    def resume_approval_stream(self, approved: bool) -> Iterator[StepEvent]:
-        """Stream the graph forward after the reviewer's decision."""
+    def resume_approval_stream(
+        self, approved: bool, *, actor_id: str = "", actor_role: str = ""
+    ) -> Iterator[StepEvent]:
+        """Stream the graph forward after the reviewer's decision.
+
+        The role check runs before the stream starts, for the same reason `resume_approval`
+        has it: a refused decision must not produce the appearance of progress.
+        """
+        if approved and actor_id:
+            from ..security.roles import can_approve
+
+            verdict = can_approve(
+                actor_id=actor_id,
+                role=actor_role,
+                run_owner=self._run_owner(),
+                run_reviewer=self._run_reviewer(),
+            )
+            if not verdict.allowed:
+                log.warning(
+                    "approval.refused",
+                    run_id=self.run_id,
+                    actor=actor_id,
+                    code=verdict.code.value if verdict.code else None,
+                )
+                current = self.snapshot()
+                current.publication = {
+                    **(current.publication or {}),
+                    "allowed": False,
+                    "code": verdict.code.value if verdict.code else None,
+                    "reason": verdict.reason,
+                }
+                self.last_outcome = current
+                return
         yield from self._stream(self._resume_payload(bool(approved)))
 
     @staticmethod
