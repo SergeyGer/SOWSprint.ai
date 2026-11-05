@@ -228,13 +228,20 @@ class ToolRegistry:
             )
 
 
-def build_default_registry() -> ToolRegistry:
-    """Registry wired to the configured Jira and Notion connectors."""
+def build_default_registry(settings: Any | None = None) -> ToolRegistry:
+    """Registry wired to the Jira and Notion connectors for `settings`.
+
+    The parameter is not a convenience. Reading the process-wide settings here meant every
+    caller that injected its own — a test, the demo, a second profile, any verification — got
+    connectors wired to whatever the environment said, so a run configured for dry-run wrote to
+    the live workspace. That is not a hypothetical: it happened, and the debris had to be
+    removed from Jira and Notion afterwards.
+    """
     from ..config import get_settings
     from .jira import JiraConnector
     from .notion import NotionConnector
 
-    settings = get_settings()
+    settings = settings or get_settings()
     jira = JiraConnector(settings)
     notion = NotionConnector(settings)
 

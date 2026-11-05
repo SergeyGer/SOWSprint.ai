@@ -75,6 +75,9 @@ class RunOutcome:
     #: from the verdict — two places computing the same policy is how they come to disagree.
     publication: dict[str, Any] = field(default_factory=dict)
 
+    #: R3.4: what each external destination actually got.
+    operation_summary: dict[str, Any] = field(default_factory=dict)
+
     @property
     def is_waiting(self) -> bool:
         return self.status in WAITING_STATUSES
@@ -150,7 +153,10 @@ class ScopingSession:
 
         self.client = client or get_session_client(session_id, self.settings)
         self.pipeline = pipeline or get_pipeline(self.settings)
-        self.registry = registry or build_default_registry()
+        # Same reason as in AgentNodes: the session builds its own registry before the nodes
+        # exist, and passing the global settings here would have re-opened the leak the
+        # nodes closed.
+        self.registry = registry or build_default_registry(self.settings)
 
         # Pass through the *caller-supplied* client, not the resolved one.
         #
@@ -666,6 +672,7 @@ class ScopingSession:
             halt_reason=str(state.get("halt_reason", "")),
             errors=list(state.get("errors") or []),
             publication=dict(state.get("publication") or {}),
+            operation_summary=dict(state.get("operation_summary") or {}),
             cost=tracker.get_ledger(self.session_id).report(),
         )
 

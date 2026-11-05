@@ -24,6 +24,12 @@ class ToolExecutionResult(BaseModel):
     request: dict[str, Any] = Field(default_factory=dict)
     response: dict[str, Any] = Field(default_factory=dict)
     error: str | None = None
+    #: R3.2: a short, stable category for the failure — `timeout`, `skipped`, `auth`, `error`.
+    #:
+    #: Separate from `error` on purpose: the message is for a person and may quote a provider,
+    #: while the code is for the journal, the summary and any retry decision. Storing only the
+    #: message forces every caller to pattern-match prose.
+    error_code: str = ""
     resource_key: str = ""
     resource_url: str = ""
 
