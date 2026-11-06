@@ -57,10 +57,7 @@ jobs:
       # The repository is English-only. Russian-language working documents live on the
       # operator's machine, not here; this fails the build if one is published.
       - name: No Russian-language documents
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg > /dev/null
-          python scripts/check_english_only.py
+        run: python scripts/check_english_only.py
 
   links:
     name: External links

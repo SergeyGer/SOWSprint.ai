@@ -86,7 +86,13 @@ def find_cyrillic(path: Path) -> list[int]:
 
 
 def subtitle_languages(video: Path) -> list[str]:
-    """Language tags of the subtitle streams, when ffprobe is available."""
+    """Language tags of the subtitle streams, when ffprobe is available.
+
+    Absent ffprobe, this returns an empty list and the caller notes that the video could not be
+    checked. The alternative — installing ffmpeg inside the documentation job — made that job
+    hang for over five minutes on `apt-get`, which turns a check people trust into one they
+    disable.
+    """
     try:
         result = subprocess.run(
             [
@@ -124,11 +130,14 @@ def main(argv: list[str] | None = None) -> int:
             preview = ", ".join(str(number) for number in lines[:5])
             failures.append(f"{relative}: Cyrillic on line(s) {preview}")
 
+    notes: list[str] = []
     for name in PUBLISHED_VIDEOS:
         video = root / name
         if not video.exists():
             continue
         languages = subtitle_languages(video)
+        if not languages:
+            notes.append(f"{name}: subtitle tracks not inspected (ffprobe unavailable)")
         offenders = [lang for lang in languages if lang.lower().startswith(("ru", "rus"))]
         if offenders:
             failures.append(
@@ -146,6 +155,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"  ✅ {len(files)} tracked file(s) and the published video are English-only")
+    for note in notes:
+        print(f"    note: {note}")
     return 0
 
 
