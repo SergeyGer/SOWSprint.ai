@@ -268,22 +268,6 @@ def _session() -> ScopingSession | None:
     return cl.user_session.get("scoping_session")
 
 
-#: How long the "open a saved run" offer stays in the transcript.
-_OPEN_RUN_HELP = """**Returning to a run**
-
-Every run keeps its own id, and the id is enough to reopen it: the same version, the same stage,
-the same waiting question. Send
-
-| Command | Effect |
-| :-- | :-- |
-| `/runs` | list the runs you can open, newest first |
-| `/open <run_id>` | reopen one |
-
-A run is visible to its author and to its appointed reviewer. A stranger is refused, and the
-refusal says who to ask.
-"""
-
-
 def _open_run_button() -> cl.Action:
     return cl.Action(
         name="open_run",
@@ -343,8 +327,10 @@ def _run_card(outcome: Any, record: Any | None) -> str:
 
     if outcome.awaiting_approval:
         lines += [
-            "**This run is waiting for a decision.** Approve or reject below — the decision "
-            "is bound to the version above.",
+            (
+                "**This run is waiting for a decision.** Approve or reject below — the "
+                "decision is bound to the version above."
+            ),
             "",
         ]
     elif outcome.awaiting_clarification:
@@ -1694,9 +1680,11 @@ async def on_chat_start() -> None:
                 "change specific clauses, `/lock 6` to freeze the ones already agreed, "
                 "`/diff` to see what moved. Send `/help` for the full list.",
                 "",
-                "**Returning to work:** every run has an id, and the id is enough to reopen it "
-                "at the stage it reached — `/runs` lists yours, `/open <run_id>` continues "
-                "one.",
+                (
+                    "**Returning to work:** every run has an id, and the id is enough to "
+                    "reopen it at the stage it reached — `/runs` lists yours, "
+                    "`/open <run_id>` continues one."
+                ),
             ]
         ),
         actions=[_open_run_button()],
