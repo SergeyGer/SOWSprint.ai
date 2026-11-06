@@ -31,6 +31,7 @@ quality, never control flow.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from datetime import date
 from typing import Any
@@ -166,6 +167,31 @@ QUESTIONS_PER_ROUND = 3
 # --------------------------------------------------------------------------------------
 # Triage
 # --------------------------------------------------------------------------------------
+
+
+def _clean_goal(goal: str) -> str:
+    """Reduce an extracted business goal to one usable sentence.
+
+    Triage reads the brief as prose and sometimes carries the document's own heading into this
+    field: a goal came back as "# Customer Analytics Platform — Nordwind Logistics The work
+    begins in December", which then appeared verbatim in the executive summary of the contract a
+    client reads. Markdown markers and the run-on that follows them are stripped here, and the
+    field is cut to its first sentence.
+    """
+    text = " ".join((goal or "").split())
+    if not text:
+        return ""
+    if text.startswith("#"):
+        # The field holds the brief's own heading, not an objective. Stripping the marker would
+        # leave a title run into the next paragraph — "Customer Analytics Platform The work is
+        # organised into…" — which reads worse than saying the goal was not captured.
+        return ""
+    # A heading that leaked in mid-string: drop the marker and keep the sentence after it.
+    text = re.sub(r"#+\s*", "", text)
+    # The goal is one sentence; anything after the first full stop is the next paragraph.
+    first = re.split(r"(?<=[.!?])\s+", text, maxsplit=1)
+    sentence = first[0].strip()
+    return sentence[:240]
 
 
 def _scope_from_signals(
@@ -795,7 +821,8 @@ def _clause_body(
         items = "; ".join(scope.deliverables[:8]) or "the services described in the agreed backlog"
         body = (
             f"The Supplier shall provide the following services for {scope.client_name}: {items}. "
-            f"The engagement objective is: {scope.business_goal or 'as recorded in the discovery report'}. "
+            f"The engagement objective is: "
+            f"{_clean_goal(scope.business_goal) or 'as recorded in the discovery report'}. "
             "Services outside Section 3 are governed by Section 5 (Change Control)."
         )
         return body, [], tags
@@ -1152,7 +1179,7 @@ def legal_offline(
         governing_law=_GOVERNING_LAW[jurisdiction],
         executive_summary=(
             f"{scope.client_name} engages {scope.vendor_name} to deliver {scope.title}. "
-            f"{scope.business_goal or 'The engagement objective is recorded in the discovery report.'} "
+            f"{_clean_goal(scope.business_goal) or 'The engagement objective is recorded in the discovery report.'} "
             f"The work is organised into {len(milestone_names)} milestone(s) with a combined "
             f"estimate of {blueprint.estimated_total_points if blueprint else 0} story points."
         ),

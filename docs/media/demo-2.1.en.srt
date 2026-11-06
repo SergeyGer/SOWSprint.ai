@@ -1,47 +1,55 @@
 1
-00:00:00,000 --> 00:00:05,700
-SOWSprint dot A I. Release two point one.
+00:00:00,000 --> 00:00:07,750
+Writing a statement of work eats days of senior pre-sales time. Days nobody
+bills.
 
 2
-00:00:06,000 --> 00:00:17,700
-A client brief, spoken rather than typed. The words appear in the message box
-while they are being spoken.
+00:00:08,000 --> 00:00:15,750
+This turns a client brief into a contract, a delivery plan and a compliance
+audit, in minutes.
 
 3
-00:00:18,000 --> 00:00:37,700
-The audit runs before anything is published. This run passes, and the card
-states the version, the mode, and exactly what will be created.
+00:00:16,000 --> 00:00:23,750
+The brief is spoken, not typed. The words appear while they are said.
 
 4
-00:00:38,000 --> 00:00:50,700
-A second person signs in with their own account, reopens the run by its
-identifier, and approves that version. The author cannot approve their own
-contract.
+00:00:24,000 --> 00:00:35,750
+The audit runs before anything is published. Fourteen clauses, ten evidence
+links, and it passes.
 
 5
-00:00:51,000 --> 00:01:00,700
-The result separates what reached Jira from what reached Notion, with links
-and a next action.
+00:00:36,000 --> 00:00:45,750
+A second person signs in, reopens the run by its id, and approves that
+version. The author cannot approve their own contract.
 
 6
-00:01:01,000 --> 00:01:08,700
-In Jira, the same project: each story carries its epic and its due date.
+00:00:46,000 --> 00:00:52,750
+Jira and Notion are reported separately, with links and a next action.
 
 7
-00:01:09,000 --> 00:01:16,700
-The timeline shows the epics on a scale, matching the approved schedule.
+00:00:53,000 --> 00:01:01,750
+In Jira: every story with its epic and its due date. And the timeline,
+matching the approved schedule.
 
 8
-00:01:17,000 --> 00:01:24,700
-The Notion page carries the milestone summary and the compliance position.
+00:01:02,000 --> 00:01:06,750
+The Notion page carries the summary and the compliance position.
 
 9
-00:01:25,000 --> 00:01:34,700
-If a destination refuses, the run keeps what succeeded. The retry sends only
-the refused operation: thirty already done were skipped, and no Jira object
-was created twice.
+00:01:07,000 --> 00:01:16,750
+And the contract itself. The artefact the client signs: clauses, numbering,
+evidence.
 
 10
-00:01:35,000 --> 00:01:44,700
-Try the offline demo without API keys, or run the full stack with Docker.
-Draft for human review.
+00:01:17,000 --> 00:01:24,750
+If a destination refuses, the run keeps what succeeded. The retry sends only
+the failed operation.
+
+11
+00:01:25,000 --> 00:01:33,750
+That is the point. Pre-sales days become minutes, and every clause is
+traceable to a source.
+
+12
+00:01:34,000 --> 00:01:39,750
+Offline demo with no keys, or the full stack with Docker.
