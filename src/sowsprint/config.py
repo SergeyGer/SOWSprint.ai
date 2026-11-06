@@ -42,6 +42,7 @@ class LLMProvider(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GROQ = "groq"
+    GEMINI = "gemini"
     OLLAMA = "ollama"
 
 
@@ -92,6 +93,12 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
     groq_api_key: str | None = None
+    #: Google AI Studio key for Gemini. Google's endpoint is not OpenAI-compatible, so this has
+    #: its own adapter rather than reusing the OpenAI one the way Groq does.
+    gemini_api_key: str | None = None
+    #: Override for a proxy or a regional endpoint. Google serves the current models from
+    #: `v1beta`; an enterprise gateway usually exposes the same path on its own host.
+    gemini_base_url: str | None = None
     cohere_api_key: str | None = None
 
     openai_base_url: str | None = None
@@ -307,6 +314,10 @@ class Settings(BaseSettings):
         return bool(self.groq_api_key)
 
     @property
+    def has_gemini(self) -> bool:
+        return bool(self.gemini_api_key)
+
+    @property
     def has_cohere(self) -> bool:
         return bool(self.cohere_api_key)
 
@@ -319,6 +330,8 @@ class Settings(BaseSettings):
             return LLMProvider.ANTHROPIC
         if self.has_openai:
             return LLMProvider.OPENAI
+        if self.has_gemini:
+            return LLMProvider.GEMINI
         if self.has_groq:
             return LLMProvider.GROQ
         return LLMProvider.MOCK

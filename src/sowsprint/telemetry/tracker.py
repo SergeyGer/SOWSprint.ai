@@ -50,6 +50,7 @@ class CostLedger:
         self._by_model: dict[str, dict[str, float]] = defaultdict(
             lambda: {"calls": 0.0, "tokens": 0.0, "cost_usd": 0.0}
         )
+        self._by_provider: dict[str, int] = defaultdict(int)
         self._started_at = datetime.utcnow()
         self._last_call_at: datetime | None = None
         self._totals = {
@@ -79,6 +80,8 @@ class CostLedger:
             model_bucket["calls"] += 1
             model_bucket["tokens"] += usage.total_tokens
             model_bucket["cost_usd"] += usage.cost_usd
+
+            self._by_provider[usage.provider or "unknown"] += 1
 
             self._last_call_at = datetime.utcnow()
         return usage
@@ -128,6 +131,7 @@ class CostLedger:
                 budget_usd=self.budget_usd,
                 by_node={k: dict(v) for k, v in self._by_node.items()},
                 by_model={k: dict(v) for k, v in self._by_model.items()},
+                by_provider=dict(self._by_provider),
                 latency_ms_total=self._totals["latency"],
                 started_at=self._started_at,
                 last_call_at=self._last_call_at,
@@ -138,6 +142,7 @@ class CostLedger:
             self._entries.clear()
             self._by_node.clear()
             self._by_model.clear()
+            self._by_provider.clear()
             self._totals = {
             "calls": 0, "prompt": 0, "completion": 0, "cost": 0.0, "latency": 0.0,
             "cached": 0, "savings": 0.0,

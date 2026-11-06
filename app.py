@@ -945,6 +945,44 @@ def _verdict_banner(critique: CritiqueReport | None, status: str) -> str:
     return "\n".join(lines)
 
 
+def _engine_line(outcome: RunOutcome | None) -> str:
+    """Which engine actually produced this run — live providers, or the offline fallback.
+
+    Printed on every result because the difference is invisible otherwise. A run whose provider
+    returned 401 four times degrades to the deterministic engine and still completes: the
+    documents look the same, the audit still reports a verdict, and nothing on the card says a
+    model was never consulted. Diagnosing that took two recording attempts.
+
+    The counts come from the cost ledger's per-provider tally, so this reports what happened
+    rather than what was configured.
+    """
+    report = getattr(outcome, "cost", None) if outcome is not None else None
+    providers = dict(getattr(report, "by_provider", {}) or {})
+    if not providers:
+        return "**Engine:** no model calls recorded"
+
+    live = {
+        name: count
+        for name, count in providers.items()
+        if name not in ("offline", "mock", "unknown")
+    }
+    offline = providers.get("offline", 0) + providers.get("mock", 0)
+
+    if not live:
+        return (
+            f"**Engine:** ⚠️ **offline** — the deterministic engine served all {offline} call(s). "
+            "No model was consulted."
+        )
+
+    detail = ", ".join(f"`{name}` {count}" for name, count in sorted(live.items()))
+    if offline:
+        return (
+            f"**Engine:** ⚠️ **mixed** — live {sum(live.values())} call(s) ({detail}), "
+            f"offline {offline}. Part of this run did not reach a model."
+        )
+    return f"**Engine:** ✅ live — {sum(live.values())} call(s) ({detail})"
+
+
 def _model_line() -> str:
     """Which model produced the documents, and which audited them.
 
@@ -1395,6 +1433,7 @@ async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
         _verdict_banner(outcome.critique, outcome.status),
         "",
         _model_line(),
+        _engine_line(outcome),
         "",
     ]
 
