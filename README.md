@@ -27,11 +27,12 @@ contract together with the delivery plan to execute it.
 
 **[📖 Engineering & product wiki →](https://github.com/SergeyGer/SOWSprint.ai/wiki)**
 
-**[▶ Watch it work](docs/media/demo.mp4)** — 1:10, narrated, from a spoken brief to the
-contract, a provisioned Jira project and a Notion page. The pipeline's thinking time is
-compressed; nothing else is.
+**[▶ Watch it work](docs/media/demo-2.1.mp4)** — 1:44, narrated, from a spoken brief to the
+contract and the publication decision. 1920×1080, English subtitles as a sidecar
+([`.srt`](docs/media/demo-2.1.en.srt)). The pipeline's thinking time is compressed; nothing else
+is.
 
-<a href="docs/media/demo.mp4"><img src="docs/media/03-transcribed.png" alt="A brief dictated by voice, transcribed, and the scope extracted from it" width="820"></a>
+<a href="docs/media/demo-2.1.mp4"><img src="docs/media/03-transcribed.png" alt="A brief dictated by voice, transcribed, and the scope extracted from it" width="820"></a>
 
 <sub>The brief is **spoken**, not typed: the microphone records it, Whisper transcribes it, and
 Triage extracts the scope and the regulatory triggers from what it heard. Then the contract is
