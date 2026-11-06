@@ -85,7 +85,12 @@ services:
       # Deliverables and the cached BM25 statistics survive a container rebuild.
       # bm25_stats.json lives inside this directory, so one volume covers both —
       # mounting a second volume at the same path would shadow the first.
-      - artifact_data:/app/data/artifacts
+      # Artifacts and the run database share one volume. Without the second mount the database
+      # lived inside the container: recreating it discarded every run, every decision and every
+      # journalled operation, so R2.1's "return to a run by id" and R3's "retry only what failed"
+      # both lost their subject. Found while recording the demo — the replay had nothing to
+      # replay.
+      - artifact_data:/app/data
       # Extra compliance corpora (CUAD, in-house clause banks) are dropped into
       # data/corpus/*.json on the host and read here. Mounted rather than copied at
       # build time so an operator can extend the knowledge base without rebuilding,
