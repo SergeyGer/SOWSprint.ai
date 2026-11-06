@@ -179,3 +179,32 @@ class TestTheEngineLine:
 def test_every_tier_has_a_gemini_default(tier: str) -> None:
     """A tier without a default would send an empty model name to the API."""
     assert GeminiClient.provider_defaults.get(tier)
+
+
+class TestTheDefaultBrief:
+    """The brief offered on the start screen has to be one that passes.
+
+    Offering an example that fails its own audit is worse than offering none: the first run a
+    stranger makes would demonstrate the product refusing to publish.
+    """
+
+    def test_the_shipped_brief_exists_and_is_substantial(self) -> None:
+        from sowsprint.config import Settings
+
+        brief = Settings(_env_file=None).default_brief
+        assert brief, "the demo brief file is missing"
+        assert len(brief.split()) > 80, "too short to produce a plan worth showing"
+
+    def test_it_names_the_obligations_the_eu_template_requires(self) -> None:
+        """The measured pass depended on these; a rewrite that drops one changes the result."""
+        from sowsprint.config import Settings
+
+        brief = Settings(_env_file=None).default_brief.lower()
+        for term in ("gdpr", "article 28", "retention", "audit logging", "service level"):
+            assert term in brief, f"{term!r} missing from the default brief"
+
+    def test_a_missing_file_reads_as_empty_rather_than_raising(self, tmp_path) -> None:
+        from sowsprint.config import Settings
+
+        settings = Settings(_env_file=None, default_brief_file=str(tmp_path / "absent.md"))
+        assert settings.default_brief == ""
