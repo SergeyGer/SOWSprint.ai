@@ -23,6 +23,7 @@ from ..observability.logging import get_logger
 from ..telemetry import tracker
 from .anthropic_client import AnthropicClient
 from .base import BaseLLMClient, BudgetExceededError, LLMError, LLMResponse, Message
+from .gemini_client import GeminiClient
 from .offline import OfflineLLMClient
 from .openai_client import GroqClient, OllamaClient, OpenAIClient
 
@@ -184,6 +185,10 @@ def _construct(provider: LLMProvider, session_id: str, settings: Settings) -> Ba
         if not settings.has_openai:
             raise RuntimeError("OPENAI_API_KEY is not configured")
         return OpenAIClient(session_id, settings)
+    if provider is LLMProvider.GEMINI:
+        if not settings.has_gemini:
+            raise RuntimeError("GEMINI_API_KEY is not configured")
+        return GeminiClient(session_id, settings)
     if provider is LLMProvider.GROQ:
         if not settings.has_groq:
             raise RuntimeError("GROQ_API_KEY is not configured")

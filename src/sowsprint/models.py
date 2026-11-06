@@ -621,6 +621,13 @@ class CostReport(BaseModel):
     budget_usd: float = 2.50
     by_node: dict[str, dict[str, float]] = Field(default_factory=dict)
     by_model: dict[str, dict[str, float]] = Field(default_factory=dict)
+    #: Calls per provider, including the offline engine as `offline`.
+    #:
+    #: This is what makes "engine: live or offline" answerable. The per-node and per-model
+    #: aggregates say what ran and what it cost but not whether a model was called at all — and a
+    #: run that silently degraded to the deterministic engine otherwise looks identical to one
+    #: that did not.
+    by_provider: dict[str, int] = Field(default_factory=dict)
     latency_ms_total: float = 0.0
     started_at: datetime = Field(default_factory=datetime.utcnow)
     last_call_at: datetime | None = None
