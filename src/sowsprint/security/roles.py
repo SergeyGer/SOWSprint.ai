@@ -98,15 +98,29 @@ REASONS: dict[DenialCode, str] = {
 }
 
 
+#: Names the account model already used, mapped onto the two application roles.
+#:
+#: `member` is what `passwd --role member` writes and what every existing deployment has. Left
+#: unmapped it fell through to the least privileged role, so a normal account could draft a
+#: contract and then be told its role did not include approving one — accurate, and not what
+#: "member" means. A member is an author; an approver is a separate appointment and has to be
+#: named as one.
+KNOWN_ROLES: dict[str, AppRole] = {
+    "author": AppRole.AUTHOR,
+    "member": AppRole.AUTHOR,
+    "approver": AppRole.APPROVER,
+    "reviewer": AppRole.APPROVER,
+    "admin": AppRole.ADMIN,
+    "service": AppRole.SERVICE,
+}
+
+
 def _role(value: str | AppRole | None) -> AppRole:
     if isinstance(value, AppRole):
         return value
-    try:
-        return AppRole(str(value or "").strip().lower())
-    except ValueError:
-        # An unknown role is the least privileged one, not the most. Guessing "admin" from a
-        # typo is how a configuration mistake becomes a security hole.
-        return AppRole.SERVICE
+    # An unknown role is the least privileged one, not the most. Guessing "admin" from a typo is
+    # how a configuration mistake becomes a security hole.
+    return KNOWN_ROLES.get(str(value or "").strip().lower(), AppRole.SERVICE)
 
 
 @dataclass(frozen=True)
