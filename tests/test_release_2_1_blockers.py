@@ -1,7 +1,7 @@
 """Release 2.1 addendum 01 — the two blockers, as regression tests.
 
-The addendum's acceptance for both is the same sentence: *tesты на пути от пользовательского
-решения до исполнителя* — from the person's decision to the executor, not around it.
+The addendum's acceptance for both is the same sentence, translated: regression tests on the
+path from the person's decision to the executor — not around it.
 
 Each test therefore asserts what actually reached the connector, because "the run reported an
 error" and "nothing was written" are different claims and only the second one matters.
@@ -93,7 +93,7 @@ def _plan() -> ToolCallPlan:
 
 
 class TestBlockerR3TheReplaySkipsCompletedWork:
-    """Addendum 01: "исполнитель повторяет успешную операцию" — the released defect."""
+    """Addendum 01: the executor repeats a successful operation. That was the released defect."""
 
     def test_a_replay_calls_only_the_failed_destination(self, tmp_path: Path) -> None:
         store = RunStore.sqlite(str(tmp_path / "runs.db"))
@@ -171,7 +171,7 @@ class TestBlockerR3TheReplaySkipsCompletedWork:
 
 
 class TestBlockerR1TheDecisionIsRecordedBeforeWriting:
-    """Addendum 01: "В прикладной БД решение не появилось" and the mode drift."""
+    """Addendum 01: the decision never appeared in the application database, and the mode drifted."""
 
     @pytest.fixture
     def settings(self, tmp_path: Path) -> Settings:
@@ -289,7 +289,7 @@ def test_the_executor_still_refuses_without_a_decision(dry_run: bool) -> None:
 
 
 class TestTheResultIsSplitByDestination:
-    """R5 / addendum 01: "Показывать результаты отдельно для Jira и Notion"."""
+    """R5 / addendum 01: report the results for Jira and Notion separately."""
 
     def test_a_notion_failure_does_not_hide_behind_a_combined_row(self, tmp_path: Path) -> None:
         store = RunStore.sqlite(str(tmp_path / "runs.db"))
