@@ -85,6 +85,13 @@ def find_cyrillic(path: Path) -> list[int]:
     return hits
 
 
+def _has_ffprobe() -> bool:
+    """Whether subtitle inspection is possible at all, as opposed to finding no tracks."""
+    from shutil import which
+
+    return which("ffprobe") is not None
+
+
 def subtitle_languages(video: Path) -> list[str]:
     """Language tags of the subtitle streams, when ffprobe is available.
 
@@ -131,13 +138,20 @@ def main(argv: list[str] | None = None) -> int:
             failures.append(f"{relative}: Cyrillic on line(s) {preview}")
 
     notes: list[str] = []
+    probe = _has_ffprobe()
     for name in PUBLISHED_VIDEOS:
         video = root / name
         if not video.exists():
             continue
+        if not probe:
+            notes.append(f"{name}: subtitle tracks not inspected (ffprobe unavailable)")
+            continue
         languages = subtitle_languages(video)
         if not languages:
-            notes.append(f"{name}: subtitle tracks not inspected (ffprobe unavailable)")
+            # No subtitle stream at all: the file publishes no text, which satisfies the rule
+            # for the same reason an image does. Saying "not inspected" here would be wrong and
+            # would train a reader to ignore the note.
+            notes.append(f"{name}: no subtitle track")
         offenders = [lang for lang in languages if lang.lower().startswith(("ru", "rus"))]
         if offenders:
             failures.append(
