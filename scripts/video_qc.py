@@ -10,8 +10,8 @@ disappears in a meeting room, and nobody notices the missing subtitles if they n
 
 Usage:
 
-    python scripts/video_qc.py docs/media/demo.mp4
-    python scripts/video_qc.py docs/media/demo.mp4 --subtitles docs/media/demo.en.srt
+    python scripts/video_qc.py docs/media/demo-2.1.mp4
+    python scripts/video_qc.py docs/media/demo-2.1.mp4 --subtitles docs/media/demo.en.srt
 """
 
 from __future__ import annotations

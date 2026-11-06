@@ -50,7 +50,7 @@ EXCLUDED_DIRS = frozenset(
 )
 
 #: Videos whose subtitle tracks are part of what the repository publishes.
-PUBLISHED_VIDEOS = ("docs/media/demo-2.1.mp4", "docs/media/demo.mp4")
+PUBLISHED_VIDEOS = ("docs/media/demo-2.1.mp4",)
 
 
 def tracked_files(root: Path) -> list[Path]:
