@@ -199,9 +199,7 @@ class Settings(BaseSettings):
     @property
     def default_brief(self) -> str:
         """The starting brief, or empty when the file is absent."""
-        import pathlib
-
-        path = pathlib.Path(self.default_brief_file)
+        path = Path(self.default_brief_file)
         try:
             return path.read_text(encoding="utf-8").strip()
         except OSError:
