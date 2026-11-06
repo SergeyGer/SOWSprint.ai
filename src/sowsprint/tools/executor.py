@@ -13,7 +13,7 @@ from typing import Any
 
 from ..observability.logging import get_logger
 from ..storage.store import OperationStatus
-from .journal import Journal, operation_key
+from .journal import Journal, Outcome, operation_key
 from .planner import ToolCallPlan
 from .registry import ToolExecutionResult, ToolRegistry
 
@@ -176,6 +176,45 @@ class ToolExecutor:
                     arguments[argument_name] = report.key_map[reference]
 
             key = operation_key(self.run_id, call.tool, call.arguments, index)
+
+            # R3 blocker, addendum 01: consult the journal BEFORE sending.
+            #
+            # The journal recorded outcomes and the executor never read them, so a replay after
+            # a Notion refusal sent the Jira project creation again — the record existed and the
+            # behaviour ignored it. An operation that already succeeded is not repeated; its
+            # saved identifier is substituted so dependent calls still resolve.
+            prior = journal.outcome_of(key)
+            if prior in (Outcome.EXISTING, Outcome.CREATED):
+                saved = journal.steps.get(key) or journal.stored_step(key)
+                step = journal.claim(key, call.tool, arguments=call.arguments, ordinal=index)
+                journal.already_present(
+                    step,
+                    external_id=getattr(saved, "external_id", ""),
+                    external_url=getattr(saved, "external_url", ""),
+                )
+                if getattr(saved, "external_id", ""):
+                    for identifier in (
+                        call.arguments.get("client_ref"),
+                        call.arguments.get("summary"),
+                        call.arguments.get("title"),
+                        call.arguments.get("project_key"),
+                    ):
+                        if isinstance(identifier, str) and identifier:
+                            report.key_map.setdefault(identifier, saved.external_id)
+                report.results.append(
+                    ToolExecutionResult(
+                        tool=call.tool,
+                        ok=True,
+                        dry_run=self.dry_run,
+                        request=arguments,
+                        resource_key=getattr(saved, "external_id", ""),
+                        resource_url=getattr(saved, "external_url", ""),
+                        error_code="already_done",
+                    )
+                )
+                log.info("tools.skipped_completed", tool=call.tool, key=key)
+                continue
+
             step = journal.claim(key, call.tool, arguments=call.arguments, ordinal=index)
 
             # R3.3: a dependent call whose predecessor did not succeed is not attempted. Running

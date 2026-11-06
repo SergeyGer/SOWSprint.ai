@@ -155,6 +155,32 @@ class Journal:
                     return Outcome.EXISTING
         return None
 
+    def stored_step(self, key: str) -> Step | None:
+        """The recorded operation for `key`, reconstructed from the store.
+
+        A process that restarted has an empty `steps` dictionary but a populated table. Without
+        this, the executor could see that an operation had succeeded and still have no saved
+        identifier to substitute, so the dependent calls would resolve against nothing.
+        """
+        if key in self.steps:
+            return self.steps[key]
+        if self.store is None:
+            return None
+        for record in self.store.list_operations(self.run_id):
+            if record.op_key != key:
+                continue
+            if record.status != OperationStatus.SUCCEEDED.value:
+                return None
+            return Step(
+                key=key,
+                tool=record.tool,
+                ordinal=0,
+                outcome=Outcome.EXISTING,
+                external_id=record.external_id,
+                external_url=record.external_url,
+            )
+        return None
+
     def claim(self, key: str, tool: str, *, arguments: dict[str, Any], ordinal: int) -> Step:
         """Register an intent before anything is sent.
 
