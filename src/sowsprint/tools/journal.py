@@ -256,6 +256,65 @@ class Journal:
             buckets[step.outcome].append(step)
         return summary
 
+    def per_destination(self) -> dict[str, dict[str, Any]]:
+        """R5 / addendum 01: results split by where they went.
+
+        One combined row says "jira+notion: 19 created" whether Notion took all nineteen or
+        refused the page. A reader deciding whether to retry needs to know which destination
+        succeeded, so the split is computed from each operation's tool rather than from the
+        batch's label.
+        """
+        buckets: dict[str, dict[str, Any]] = {}
+        for step in self.steps.values():
+            name = "notion" if "notion" in step.tool else "jira"
+            entry = buckets.setdefault(
+                name,
+                {
+                    "created": 0,
+                    "existing": 0,
+                    "skipped": 0,
+                    "uncertain": 0,
+                    "failed": 0,
+                    "links": [],
+                    "errors": [],
+                },
+            )
+            if step.outcome is Outcome.CREATED:
+                entry["created"] += 1
+                if step.external_url:
+                    entry["links"].append(step.external_url)
+            elif step.outcome is Outcome.EXISTING:
+                entry["existing"] += 1
+                if step.external_url:
+                    entry["links"].append(step.external_url)
+            elif step.outcome is Outcome.UNCERTAIN:
+                entry["uncertain"] += 1
+            elif step.outcome is Outcome.FAILED:
+                entry["failed"] += 1
+                entry["errors"].append(step.error_code or step.detail or "failed")
+            else:
+                entry["skipped"] += 1
+        return buckets
+
+    def next_action(self, dry_run: bool) -> str:
+        """What the reader should do about the result, in one sentence."""
+        summary = self.summary()
+        if dry_run:
+            return "Nothing was sent. Enable live integrations to provision for real."
+        uncertain = len(summary.uncertain)
+        failed = len(summary.failed)
+        if uncertain:
+            return (
+                f"{uncertain} operation(s) did not come back and may or may not have taken "
+                "effect. Reconcile them before retrying — a repeat could duplicate."
+            )
+        if failed:
+            return (
+                f"{failed} operation(s) were refused. Fix the cause, then retry: completed "
+                "work is skipped and only the failed calls are sent again."
+            )
+        return "Every planned object was created. Nothing to retry."
+
     # -------------------------------------------------------------- persistence
     def _record(
         self,

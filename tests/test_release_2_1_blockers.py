@@ -286,3 +286,55 @@ def test_the_executor_still_refuses_without_a_decision(dry_run: bool) -> None:
     report = executor.execute(_plan())
     assert registry.calls == []
     assert report.refused
+
+
+class TestTheResultIsSplitByDestination:
+    """R5 / addendum 01: "Показывать результаты отдельно для Jira и Notion"."""
+
+    def test_a_notion_failure_does_not_hide_behind_a_combined_row(self, tmp_path: Path) -> None:
+        store = RunStore.sqlite(str(tmp_path / "runs.db"))
+        allow = evaluate_publication(mode="live", audit_passed=True, approved=True)
+
+        registry = FailingNotionRegistry()
+        report = ToolExecutor(registry, dry_run=False, run_id="run-1", store=store).execute(
+            _plan(), decision=allow
+        )
+        breakdown = report.journal.per_destination()
+
+        assert breakdown["jira"]["created"] == 1
+        assert breakdown["jira"]["failed"] == 0
+        assert breakdown["notion"]["created"] == 0
+        assert breakdown["notion"]["failed"] == 1
+
+    def test_the_next_action_names_the_retry(self, tmp_path: Path) -> None:
+        """A failed run has to tell the reader what to do, not only what happened."""
+        store = RunStore.sqlite(str(tmp_path / "runs.db"))
+        allow = evaluate_publication(mode="live", audit_passed=True, approved=True)
+        registry = FailingNotionRegistry()
+        report = ToolExecutor(registry, dry_run=False, run_id="run-1", store=store).execute(
+            _plan(), decision=allow
+        )
+
+        action = report.journal.next_action(dry_run=False)
+        assert "retry" in action.lower()
+        assert "skipped" in action.lower()
+
+    def test_an_uncertain_operation_is_not_offered_for_retry(self, tmp_path: Path) -> None:
+        """A timeout may or may not have taken effect; retrying it could duplicate."""
+        store = RunStore.sqlite(str(tmp_path / "runs.db"))
+        journal = Journal("run-1", store=store)
+        step = journal.claim("k1", "create_jira_project", arguments={}, ordinal=1)
+        journal.uncertain(step, error_code="timeout")
+
+        action = journal.next_action(dry_run=False)
+        assert "reconcile" in action.lower()
+        assert "could duplicate" in action.lower()
+
+    def test_a_dry_run_says_nothing_was_sent(self, tmp_path: Path) -> None:
+        store = RunStore.sqlite(str(tmp_path / "runs.db"))
+        journal = Journal("run-1", store=store)
+        journal.succeeded(
+            journal.claim("k1", "create_jira_project", arguments={}, ordinal=1),
+            external_id="EUSTORE",
+        )
+        assert "Nothing was sent" in journal.next_action(dry_run=True)
