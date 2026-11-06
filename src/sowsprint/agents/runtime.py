@@ -343,14 +343,20 @@ class ScopingSession:
             raise ValueError("a reviewer id is required")
         if reviewer_id == self.owner_id:
             raise ValueError("the author cannot appoint themselves as reviewer")
-        if self.store is not None:
-            record = self.store.get_run(self.run_id)
-            if record is not None:
-                record.reviewer_id = reviewer_id
-                self.store.save_run(record, touch=False)
-                return
-        # No record yet: remember it so the first persistence writes it.
         self._pending_reviewer = reviewer_id
+        if self.store is None:
+            return
+
+        # Written now, not when the decision is taken. An appointment is a durable fact about
+        # the run: a reviewer who opens it from another tab has to be recognised before they
+        # decide anything, and a record created at decision time would arrive too late.
+        from ..storage.store import RunRecord
+
+        record = self.store.get_run(self.run_id)
+        if record is None:
+            record = RunRecord(run_id=self.run_id, owner_id=self.owner_id)
+        record.reviewer_id = reviewer_id
+        self.store.save_run(record, touch=False)
 
     def _run_owner(self) -> str:
         """Who started this run.
@@ -372,6 +378,29 @@ class ScopingSession:
             if record is not None and record.reviewer_id:
                 return record.reviewer_id
         return getattr(self, "_pending_reviewer", "")
+
+    def _persist_run(self, outcome: RunOutcome) -> None:
+        """Record the run as soon as it exists.
+
+        R2.1 asks for a run id the team can return to. A record written only when a decision is
+        taken would not be listed while the thing is actually waiting — which is exactly when
+        somebody else needs to find it.
+        """
+        if self.store is None:
+            return
+        from ..storage.store import RunRecord
+
+        existing = self.store.get_run(self.run_id)
+        record = existing or RunRecord(run_id=self.run_id)
+        record.owner_id = record.owner_id or self.owner_id
+        record.title = str(getattr(outcome.sow, "title", "") or record.title or "")[:400]
+        record.status = outcome.status
+        record.stage = outcome.stage
+        record.publication_mode = str(
+            (outcome.publication or {}).get("mode") or self.settings.publication_mode
+        )
+        record.halt_reason = outcome.halt_reason or ""
+        self.store.save_run(record)
 
     def _persist_decision(self, outcome: RunOutcome, approved: bool, actor_id: str) -> None:
         """Store the run, its current revision and the decision as one story."""
@@ -708,6 +737,7 @@ class ScopingSession:
             return
 
         self.last_outcome = self.snapshot()
+        self._persist_run(self.last_outcome)
 
     def snapshot(self) -> RunOutcome:
         """Read the current checkpoint and package it as a :class:`RunOutcome`."""

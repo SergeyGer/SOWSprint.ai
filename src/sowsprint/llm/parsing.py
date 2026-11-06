@@ -45,12 +45,13 @@ def _balanced_objects(text: str) -> list[str]:
             if not stack:
                 start = index
             stack.append(char)
-        elif char in "}]":
-            if stack:
-                stack.pop()
-                if not stack and start is not None:
-                    spans.append(text[start : index + 1])
-                    start = None
+        elif char in "}]" and stack:
+            # Combined rather than nested: the outer condition was always required for the pop
+            # to make sense, so it reads as one guard. Ruff 0.17 notices the nesting.
+            stack.pop()
+            if not stack and start is not None:
+                spans.append(text[start : index + 1])
+                start = None
     return spans
 
 

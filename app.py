@@ -268,6 +268,221 @@ def _session() -> ScopingSession | None:
     return cl.user_session.get("scoping_session")
 
 
+#: How long the "open a saved run" offer stays in the transcript.
+_OPEN_RUN_HELP = """**Returning to a run**
+
+Every run keeps its own id, and the id is enough to reopen it: the same version, the same stage,
+the same waiting question. Send
+
+| Command | Effect |
+| :-- | :-- |
+| `/runs` | list the runs you can open, newest first |
+| `/open <run_id>` | reopen one |
+
+A run is visible to its author and to its appointed reviewer. A stranger is refused, and the
+refusal says who to ask.
+"""
+
+
+def _open_run_button() -> cl.Action:
+    return cl.Action(
+        name="open_run",
+        payload={},
+        label="📂 Open a saved run",
+    )
+
+
+def _run_line(record: Any) -> str:
+    """One run as a single readable row."""
+    updated = str(record.updated_at or "")[:19].replace("T", " ")
+    mode = "live" if record.publication_mode == "live" else "dry-run"
+    title = (record.title or "(untitled)")[:70]
+    return f"- `{record.run_id}` · {title} · v{record.current_version} · {mode} · {updated} UTC"
+
+
+def _run_card(outcome: Any, record: Any | None) -> str:
+    """The card R2.1 asks for: name, version, mode, status, time, draft and artefacts."""
+    lines = ["### 📂 Saved run reopened", ""]
+    if record is not None:
+        lines += [
+            f"**{record.title or '(untitled)'}**",
+            "",
+            f"- **Run** `{record.run_id}` · owner `{record.owner_id or '—'}`"
+            f" · reviewer `{record.reviewer_id or 'not appointed'}`",
+            f"- **Version** {record.current_version}"
+            f" · **mode** {'live' if record.publication_mode == 'live' else 'dry-run'}",
+            f"- **Updated** {str(record.updated_at or '')[:19].replace('T', ' ')} UTC",
+        ]
+    else:
+        lines += [f"- **Run** `{outcome.run_id}`"]
+
+    lines += [f"- **Status** {outcome.status} · **stage** {outcome.stage}", ""]
+
+    if outcome.sow is not None:
+        clauses = len(getattr(outcome.sow, "clauses", []) or [])
+        lines += [
+            f"**Draft on file:** {getattr(outcome.sow, 'title', '(untitled)')} "
+            f"— {clauses} clauses",
+            "",
+        ]
+    else:
+        lines += ["**No draft is stored for this run yet.**", ""]
+
+    if outcome.critique is not None:
+        verdict = "PASSED" if outcome.critique.passed else "FAILED"
+        lines += [
+            f"**Audit:** {verdict} — score {outcome.critique.quality_score:.2f}, "
+            f"grounding {outcome.critique.grounding_ratio:.0%}",
+            "",
+        ]
+
+    if outcome.artifacts:
+        lines += ["**Artefacts**", ""]
+        lines += [f"- `{Path(a.path).name}`" for a in outcome.artifacts[:12]]
+        lines += [""]
+
+    if outcome.awaiting_approval:
+        lines += [
+            "**This run is waiting for a decision.** Approve or reject below — the decision "
+            "is bound to the version above.",
+            "",
+        ]
+    elif outcome.awaiting_clarification:
+        lines += ["**This run is waiting for answers** to its clarification questions.", ""]
+
+    return "\n".join(lines)
+
+
+async def _open_run(run_id: str) -> bool:
+    """Reopen a saved run by id, if the caller is allowed to see it.
+
+    R2.1 and R4.3 together: the identifier is enough to resume the work, and not enough to see
+    somebody else's. The refusal is deliberate — a link that opens for anyone who has it is not
+    a shared run, it is a public one.
+    """
+    from sowsprint.security.roles import can_view
+    from sowsprint.storage.store import RunStore
+
+    settings = _settings()
+    actor = _actor_id() or _current_account()
+    run_id = run_id.strip()
+
+    try:
+        store: RunStore = settings.run_store
+        record = store.get_run(run_id)
+    except Exception as exc:
+        log.error("ui.run_open_failed", run_id=run_id, error=str(exc))
+        await cl.Message(content=f"❌ Could not read the run store: `{exc}`").send()
+        return False
+
+    if record is None:
+        await cl.Message(
+            content=(
+                f"No run `{run_id}` is stored. Send `/runs` to see the ones you can open."
+            )
+        ).send()
+        return False
+
+    verdict = can_view(
+        actor_id=actor,
+        run_owner=record.owner_id,
+        run_reviewer=record.reviewer_id,
+        role=_actor_role() or "admin",
+    )
+    if not verdict.allowed:
+        # Nothing about the run is disclosed — not even its title, which would confirm that an
+        # id guessed from a screenshot belongs to something.
+        await cl.Message(
+            content="\n".join(
+                [
+                    "### 🔒 Run not available",
+                    "",
+                    f"**Why:** {verdict.reason}",
+                    "",
+                    f"Nothing from `{run_id}` has been shown.",
+                ]
+            )
+        ).send()
+        return False
+
+    try:
+        session = ScopingSession.restore(
+            run_id,
+            settings=settings,
+            session_id=cl.user_session.get("session_id") or run_id,
+            pipeline=get_pipeline(settings),
+        )
+    except Exception as exc:
+        log.error("ui.run_restore_failed", run_id=run_id, error=str(exc))
+        await cl.Message(content=f"❌ Could not reopen `{run_id}`: `{exc}`").send()
+        return False
+
+    outcome = session.snapshot()
+    session.last_outcome = outcome
+    cl.user_session.set("scoping_session", session)
+    cl.user_session.set("previous_sow", outcome.sow)
+
+    await cl.Message(content=_run_card(outcome, record)).send()
+
+    if outcome.awaiting_approval:
+        # The same actions as a fresh gate, so a reviewer returning by link has the controls in
+        # front of them rather than having to remember a slash command.
+        await cl.Message(
+            content=(
+                "_The approval is bound to this version. Editing the contract, the plan or the "
+                "destinations requires a new audit and a new decision._"
+            ),
+            actions=[
+                cl.Action(
+                    name="approve_contract",
+                    payload={"decision": "approve"},
+                    label="✅ Approve & provision",
+                ),
+                cl.Action(
+                    name="reject_contract",
+                    payload={"decision": "reject"},
+                    label="🛑 Reject",
+                ),
+            ],
+        ).send()
+        await _update_dashboard(session)
+    return True
+
+
+async def _list_runs() -> None:
+    """List the runs this account may open."""
+    settings = _settings()
+    actor = _actor_id() or _current_account()
+    try:
+        records = settings.run_store.list_runs(owner_id=actor, limit=20)
+    except Exception as exc:
+        await cl.Message(content=f"❌ Could not read the run store: `{exc}`").send()
+        return
+
+    if not records:
+        await cl.Message(
+            content=(
+                "No saved runs yet. Send a requirement and one will be created; its id appears "
+                "in the final report."
+            ),
+            actions=[_open_run_button()],
+        ).send()
+        return
+
+    await cl.Message(
+        content="\n".join(
+            [
+                f"### Runs you can open — {len(records)}",
+                "",
+                *[_run_line(record) for record in records],
+                "",
+                "Send `/open <run_id>` to continue one.",
+            ]
+        ),
+        actions=[_open_run_button()],
+    ).send()
+
+
 def _chip(jurisdiction: str) -> str:
     """Render the active compliance regime as a readable label."""
     from sowsprint.models import Jurisdiction
@@ -1057,6 +1272,14 @@ async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
     """Render a run outcome: questions, approval prompt, or final deliverables."""
     icon = STATUS_ICONS.get(outcome.status, "•")
 
+    if outcome.awaiting_approval:
+        # R4.1: appoint the reviewer as soon as the run needs one, not when somebody tries to
+        # approve it. An appointment made at decision time arrives after the reviewer has
+        # already been refused access to the run they are supposed to review.
+        session = _session()
+        if session is not None:
+            _ensure_reviewer(session)
+
     if outcome.awaiting_clarification:
         lines = [
             f"{prefix}### {icon} Three questions before I can draft the contract",
@@ -1444,8 +1667,13 @@ async def on_chat_start() -> None:
                 "Once a contract exists you can negotiate it: `/revise <instruction>` to "
                 "change specific clauses, `/lock 6` to freeze the ones already agreed, "
                 "`/diff` to see what moved. Send `/help` for the full list.",
+                "",
+                "**Returning to work:** every run has an id, and the id is enough to reopen it "
+                "at the stage it reached — `/runs` lists yours, `/open <run_id>` continues "
+                "one.",
             ]
-        )
+        ),
+        actions=[_open_run_button()],
     ).send()
 
     await cl.ChatSettings(
@@ -1613,6 +1841,26 @@ async def on_message(message: cl.Message) -> None:
 
     session = _session()
 
+    # ------------------------------------------------- open a saved run (R2.1)
+    #
+    # Checked before the contract commands: returning to a run is how someone *gets* a contract
+    # into the current tab, so it cannot require one to already be loaded.
+    head, _, argument = text.strip().partition(" ")
+    command = head.casefold()
+    if command in ("/runs", "/run"):
+        await _list_runs()
+        return
+    if command == "/open":
+        if not argument.strip():
+            await cl.Message(
+                content=(
+                    "Which run? Send `/open <run_id>`, or `/runs` to see the ids you can open."
+                )
+            ).send()
+            return
+        await _open_run(argument)
+        return
+
     # ---------------------------------------------------------- commands
     if session is not None and session.last_outcome is not None:
         outcome = session.last_outcome
@@ -1703,6 +1951,8 @@ REVISION_HELP = """**Contract commands**
 | `/unlock 6` | Release a clause |
 | `/diff` | Show what changed in the last revision |
 | `/clauses` | List clauses with their lock state |
+| `/runs` | List the runs you can open |
+| `/open <run_id>` | Reopen a saved run at the stage it reached |
 """
 
 
@@ -1878,6 +2128,13 @@ async def _provision(session: ScopingSession, approved: bool) -> None:
 # --------------------------------------------------------------------------------------
 # Action callbacks
 # --------------------------------------------------------------------------------------
+
+
+@cl.action_callback("open_run")
+async def on_open_run(action: cl.Action) -> None:
+    """Offer the runs this account may open."""
+    await action.remove()
+    await _list_runs()
 
 
 @cl.action_callback("approve_contract")

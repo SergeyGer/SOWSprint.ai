@@ -377,6 +377,21 @@ criteria, a Jira-importable CSV, the quality audit and a full run report — and
 the job. The audit verdict, score and grounding ratio are step outputs, so a workflow can gate
 on them.
 
+### Returning to a run
+
+Every run has an id, and the id is enough to reopen it — the same version, the same stage, the
+same waiting question. In the interface:
+
+| Command | Effect |
+| :-- | :-- |
+| `/runs` | the runs you can open, newest first |
+| `/open <run_id>` | reopen one at the stage it reached |
+
+A run is visible to its author and to its appointed reviewer, and to nobody else. A reviewer
+signs in with their own account, opens the author's run by id, and approves **that version**;
+the author cannot approve their own contract, and neither can an administrator who was not
+appointed.
+
 **[The action's inputs and outputs →](action.yml)**
 
 ---
