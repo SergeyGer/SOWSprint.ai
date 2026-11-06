@@ -54,6 +54,11 @@ jobs:
       - name: README badges match the dependency files
         run: python scripts/gen_badges.py --check
 
+      # The repository is English-only. Russian-language working documents live on the
+      # operator's machine, not here; this fails the build if one is published.
+      - name: No Russian-language documents
+        run: python scripts/check_english_only.py
+
   links:
     name: External links
     runs-on: ubuntu-latest

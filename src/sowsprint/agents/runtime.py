@@ -325,12 +325,167 @@ class ScopingSession:
                 self.last_outcome = current
                 return current
 
+        # R1 blocker, addendum 01: the decision is written BEFORE the graph moves, not after.
+        #
+        # The earlier order recorded it on the way out, which means a crash between the first
+        # external call and the return left objects in Jira with no record of who authorised
+        # them — the exact failure the record exists to prevent. Writing first makes the worst
+        # case a decision recorded with nothing sent, which an operator can see and resume.
+        #
+        # A persistence failure here aborts the decision rather than being logged and ignored:
+        # if the record cannot be written, the approval cannot be honoured.
+        guard = self._publication_guard(approved, actor_id)
+        if guard is not None:
+            return guard
+
         outcome = self._resume(bool(approved))
         try:
             self._persist_decision(outcome, approved, actor_id)
-        except Exception as exc:  # persistence must not undo a decision that was accepted
+        except Exception as exc:  # after the fact: the run has already moved
             log.error("session.decision_not_persisted", run_id=self.run_id, error=str(exc))
         return outcome
+
+    def _publication_guard(self, approved: bool, actor_id: str) -> RunOutcome | None:
+        """Record the decision, or explain why the run may not proceed.
+
+        Returns an outcome to hand back when the approval is refused; ``None`` when it is safe
+        to drive the graph.
+
+        Three checks, in the order that produces the most useful refusal:
+
+        1. **The mode has not moved.** A run opened as dry-run and confirmed after the
+           deployment switched to live must not write. The saved mode is the one shown to the
+           person who clicked, so it is the one that governs.
+        2. **The decision can be recorded.** No record, no write.
+        3. **The run is still at the same version.** The snapshot was taken when the approval
+           card was rendered; if the document moved, the button describes something else.
+        """
+        from ..policy import PublicationMode, Snapshot, evaluate_publication
+        from .nodes import _audit_degraded, _audit_passed
+
+        # Read the checkpoint, not a cached field. `_last_state` is a convenience for the
+        # outcome snapshot; relying on it here meant a guard that silently saw an empty state
+        # when the cache had been reset, refused for "no audit", and recorded nothing — which
+        # looks identical to a correct refusal until you look for the row.
+        try:
+            state = dict(self.graph.get_state(self._config).values or {})
+        except Exception as exc:
+            log.error("approval.state_unreadable", run_id=self.run_id, error=str(exc))
+            state = dict(getattr(self, "_last_state", {}) or {})
+        saved_mode = str(state.get("publication_mode") or self.settings.publication_mode)
+        actual_mode = self.settings.publication_mode
+
+        def refuse(code: str, reason: str) -> RunOutcome:
+            log.warning("approval.blocked", run_id=self.run_id, code=code)
+            current = self.snapshot()
+            current.publication = {
+                **(current.publication or {}),
+                "allowed": False,
+                "code": code,
+                "reason": reason,
+            }
+            self.last_outcome = current
+            return current
+
+        if saved_mode != actual_mode:
+            # The connectors follow the deployment; the person clicked on the run's own mode.
+            return refuse(
+                "mode_changed",
+                f"This run was opened in {saved_mode} mode and the deployment is now in "
+                f"{actual_mode}. Nothing was sent. Reopen the run, review it in the current "
+                "mode, and approve again.",
+            )
+
+        if not approved:
+            # A rejection writes nothing externally, so it needs no record before the fact; it
+            # is recorded on the way out like any other state change.
+            return None
+
+        snapshot = Snapshot.build(
+            sow=state.get("draft_sow"),
+            backlog=state.get("blueprint"),
+            plan={"calls": state.get("tool_calls") or []},
+            destinations=sorted(
+                {
+                    "jira" if str(c.get("tool", "")).startswith("create_jira") else "notion"
+                    for c in (state.get("tool_calls") or [])
+                    if str(c.get("tool", "")).startswith(("create_jira", "create_notion"))
+                }
+            ),
+            version=int((state.get("critique") or {}).get("attempt", 0)) + 1,
+        )
+        decision = evaluate_publication(
+            mode=PublicationMode(saved_mode),
+            audit_passed=_audit_passed(state),
+            audit_degraded=_audit_degraded(state),
+            approved=True,
+            approved_snapshot=snapshot.digest,
+            current_snapshot=snapshot,
+        )
+        if decision.blocked:
+            return refuse(
+                decision.code.value if decision.code else "blocked",
+                decision.reason,
+            )
+
+        try:
+            self._record_decision_ahead(decision, snapshot, approved, actor_id)
+        except Exception as exc:
+            log.error("session.decision_not_recorded", run_id=self.run_id, error=str(exc))
+            return refuse(
+                "decision_not_recorded",
+                "The decision could not be recorded, so nothing was sent. This is a storage "
+                f"problem, not a contract problem: {exc}",
+            )
+        return None
+
+    def _record_decision_ahead(self, decision: Any, snapshot: Any, approved: bool, actor_id: str) -> None:
+        """Write the decision before the first external call."""
+        store = self.store
+        if store is None:
+            return
+        from ..storage.store import DecisionRecord, EventRecord, RevisionRecord, RunRecord
+
+        version = int(snapshot.version)
+        mode = decision.mode.value if hasattr(decision.mode, "value") else str(decision.mode)
+        record = store.get_run(self.run_id) or RunRecord(run_id=self.run_id)
+        record.owner_id = record.owner_id or self.owner_id
+        record.reviewer_id = record.reviewer_id or getattr(self, "_pending_reviewer", "")
+        record.publication_mode = mode
+        record.current_version = version
+        record.status = "approved" if approved else record.status
+        store.save_run(record)
+
+        store.save_revision(
+            RevisionRecord(
+                run_id=self.run_id,
+                number=version,
+                snapshot_hash=snapshot.digest,
+                audit_passed=True,
+                plan_hash=snapshot.plan_hash,
+                mode=mode,
+                destinations=list(snapshot.destinations),
+            )
+        )
+        store.save_decision(
+            DecisionRecord(
+                run_id=self.run_id,
+                revision=version,
+                snapshot_hash=snapshot.digest,
+                mode=mode,
+                actor_id=actor_id or self.owner_id,
+                decision="approve" if approved else "reject",
+            )
+        )
+        store.add_event(
+            EventRecord(
+                run_id=self.run_id,
+                actor_id=actor_id or self.owner_id,
+                action="approve" if approved else "reject",
+                version=version,
+                result="recorded before execution",
+            )
+        )
 
     def appoint_reviewer(self, reviewer_id: str) -> None:
         """Name the person who may approve this run.

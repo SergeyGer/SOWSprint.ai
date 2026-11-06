@@ -37,6 +37,7 @@ def settings(tmp_path: Path) -> Settings:
         rerank_provider="heuristic",
         whisper_provider="offline",
         dry_run_integrations=True,
+        session_budget_usd=2.50,
         auth_enabled=False,
         enable_cloud_fallback=False,
         state_store_url=f"sqlite:///{tmp_path / 'runs.db'}",
@@ -49,6 +50,8 @@ def pipeline(settings: Settings):
     pipe = get_pipeline(settings)
     pipe.ensure_indexed()
     drop_ledger("open-run")
+    drop_ledger("alice")
+    drop_ledger("reviewer")
     return pipe
 
 

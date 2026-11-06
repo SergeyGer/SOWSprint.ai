@@ -1251,8 +1251,8 @@ def _resource_block(outcome: RunOutcome) -> str:
     extra = len(roles) - 6
     tail = f" and {extra} more role(s)" if extra > 0 else ""
     return (
-        f"**Resources:** {listed}{tail} — counted from the roles the stories "
-        "are written for."
+        f"**Roles in the user stories:** {listed}{tail} — counted from the roles the "
+        "stories are written for, not from the delivery team."
     )
 
 
@@ -1465,40 +1465,66 @@ async def _present_outcome(outcome: RunOutcome, *, prefix: str = "") -> None:
 
     # ------------------------------------------------------------------ destinations
     if outcome.integrations:
-        # State plainly where the data went. "38 call(s) succeeded (dry-run)" reads as
-        # success, and a reader reasonably concluded the backlog had been created when
-        # nothing had been sent anywhere.
-        lines += ["---", "", "## Where the data went", "",
-                  "| Destination | Result |", "| :-- | :-- |"]
-        any_dry = False
-        for integration in outcome.integrations:
-            target = str(integration.get("target") or "integration")
-            dry = bool(integration.get("dry_run"))
-            created = integration.get("created") or []
-            failed = integration.get("failed") or []
-            if dry:
-                any_dry = True
-                lines.append(
+        # State plainly where the data went. "38 call(s) succeeded (dry-run)" reads as success,
+        # and a reader reasonably concluded the backlog had been created when nothing had been
+        # sent anywhere.
+        #
+        # One row per destination, because a combined "jira+notion" row says the same thing
+        # whether Notion took every page or refused the only one it got. T05 needs the reader to
+        # see which side failed before deciding to retry.
+        summary = outcome.operation_summary or {}
+        by_destination = summary.get("by_destination") or {}
+        planned = sum(
+            len(i.get("created") or []) + len(i.get("failed") or []) for i in outcome.integrations
+        )
 
+        lines += ["---", "", "## Where the data went", ""]
+
+        if by_destination:
+            lines += ["| Destination | Created | Failed | Awaiting reconciliation | Links |"]
+            lines += ["| :-- | --: | --: | --: | :-- |"]
+            for name in sorted(by_destination):
+                entry = by_destination[name]
+                links = entry.get("links") or []
+                link = f"[open]({links[0]})" if links else "—"
+                lines.append(
+                    f"| **{name}** | {entry.get('created', 0)} | {entry.get('failed', 0)} | "
+                    f"{entry.get('uncertain', 0)} | {link} |"
+                )
+        else:
+            lines += ["| Destination | Result |", "| :-- | :-- |"]
+            for integration in outcome.integrations:
+                target = str(integration.get("target") or "integration")
+                dry = bool(integration.get("dry_run"))
+                created = integration.get("created") or []
+                failed = integration.get("failed") or []
+                if dry:
+                    lines.append(
                         f"| {target} | ⚠️ **DRY RUN — nothing was sent.** "
                         f"{len(created)} call(s) validated, {len(failed)} failed validation |"
-
-                )
-            elif failed:
-                lines.append(f"| {target} | ❌ {len(created)} created, **{len(failed)} failed** |")
-            else:
-                lines.append(f"| {target} | ✅ **{len(created)} item(s) created** |")
+                    )
+                elif failed:
+                    lines.append(
+                        f"| {target} | ❌ {len(created)} created, **{len(failed)} failed** |"
+                    )
+                else:
+                    lines.append(f"| {target} | ✅ **{len(created)} item(s) created** |")
         lines.append("")
 
+        any_dry = any(bool(i.get("dry_run")) for i in outcome.integrations)
         if any_dry:
             lines += [
                 (
-                    "> **Nothing reached Jira or Notion.** Dry-run is on, so every call was "
-                    "validated and thrown away. Set `SOWSPRINT_DRY_RUN_INTEGRATIONS=false` "
-                    "and run again to provision for real."
+                    f"> **Nothing reached Jira or Notion.** Dry-run is on, so all {planned} "
+                    "call(s) were validated and thrown away. Set "
+                    "`SOWSPRINT_DRY_RUN_INTEGRATIONS=false` and run again to provision for real."
                 ),
                 "",
             ]
+
+        next_action = summary.get("next_action")
+        if next_action:
+            lines += [f"**Next:** {next_action}", ""]
 
     with contextlib.suppress(Exception):
         await cl.Message(content="\n".join(lines)).send()

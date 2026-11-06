@@ -155,6 +155,32 @@ class Journal:
                     return Outcome.EXISTING
         return None
 
+    def stored_step(self, key: str) -> Step | None:
+        """The recorded operation for `key`, reconstructed from the store.
+
+        A process that restarted has an empty `steps` dictionary but a populated table. Without
+        this, the executor could see that an operation had succeeded and still have no saved
+        identifier to substitute, so the dependent calls would resolve against nothing.
+        """
+        if key in self.steps:
+            return self.steps[key]
+        if self.store is None:
+            return None
+        for record in self.store.list_operations(self.run_id):
+            if record.op_key != key:
+                continue
+            if record.status != OperationStatus.SUCCEEDED.value:
+                return None
+            return Step(
+                key=key,
+                tool=record.tool,
+                ordinal=0,
+                outcome=Outcome.EXISTING,
+                external_id=record.external_id,
+                external_url=record.external_url,
+            )
+        return None
+
     def claim(self, key: str, tool: str, *, arguments: dict[str, Any], ordinal: int) -> Step:
         """Register an intent before anything is sent.
 
@@ -229,6 +255,65 @@ class Journal:
         for step in sorted(self.steps.values(), key=lambda s: s.ordinal):
             buckets[step.outcome].append(step)
         return summary
+
+    def per_destination(self) -> dict[str, dict[str, Any]]:
+        """R5 / addendum 01: results split by where they went.
+
+        One combined row says "jira+notion: 19 created" whether Notion took all nineteen or
+        refused the page. A reader deciding whether to retry needs to know which destination
+        succeeded, so the split is computed from each operation's tool rather than from the
+        batch's label.
+        """
+        buckets: dict[str, dict[str, Any]] = {}
+        for step in self.steps.values():
+            name = "notion" if "notion" in step.tool else "jira"
+            entry = buckets.setdefault(
+                name,
+                {
+                    "created": 0,
+                    "existing": 0,
+                    "skipped": 0,
+                    "uncertain": 0,
+                    "failed": 0,
+                    "links": [],
+                    "errors": [],
+                },
+            )
+            if step.outcome is Outcome.CREATED:
+                entry["created"] += 1
+                if step.external_url:
+                    entry["links"].append(step.external_url)
+            elif step.outcome is Outcome.EXISTING:
+                entry["existing"] += 1
+                if step.external_url:
+                    entry["links"].append(step.external_url)
+            elif step.outcome is Outcome.UNCERTAIN:
+                entry["uncertain"] += 1
+            elif step.outcome is Outcome.FAILED:
+                entry["failed"] += 1
+                entry["errors"].append(step.error_code or step.detail or "failed")
+            else:
+                entry["skipped"] += 1
+        return buckets
+
+    def next_action(self, dry_run: bool) -> str:
+        """What the reader should do about the result, in one sentence."""
+        summary = self.summary()
+        if dry_run:
+            return "Nothing was sent. Enable live integrations to provision for real."
+        uncertain = len(summary.uncertain)
+        failed = len(summary.failed)
+        if uncertain:
+            return (
+                f"{uncertain} operation(s) did not come back and may or may not have taken "
+                "effect. Reconcile them before retrying — a repeat could duplicate."
+            )
+        if failed:
+            return (
+                f"{failed} operation(s) were refused. Fix the cause, then retry: completed "
+                "work is skipped and only the failed calls are sent again."
+            )
+        return "Every planned object was created. Nothing to retry."
 
     # -------------------------------------------------------------- persistence
     def _record(

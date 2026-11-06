@@ -153,6 +153,7 @@ class TestTheServerEnforcesIt:
             rerank_provider="heuristic",
             whisper_provider="offline",
             dry_run_integrations=True,
+            session_budget_usd=2.50,
             auth_enabled=False,
             enable_cloud_fallback=False,
             state_store_url=f"sqlite:///{tmp_path / 'runs.db'}",
@@ -161,6 +162,7 @@ class TestTheServerEnforcesIt:
         pipeline = get_pipeline(settings)
         pipeline.ensure_indexed()
         drop_ledger("r4-test")
+        drop_ledger("alice")
         return ScopingSession("alice", settings=settings, pipeline=pipeline)
 
     def test_an_author_approving_through_the_api_is_refused(self, session) -> None:
@@ -186,7 +188,11 @@ class TestTheServerEnforcesIt:
 
         result = session.resume_approval(True, actor_id="bob", actor_role="approver")
 
-        assert result.status == "completed"
+        # The run may need a repair pass before the audit passes, so "completed" is the claim to
+        # assert — the version it completed at is data and belongs to the blockers test.
+        assert result.status == "completed", (
+            f"publication={result.publication!r}, reason={result.halt_reason!r}"
+        )
 
     def test_an_author_cannot_appoint_themselves(self, session) -> None:
         with pytest.raises(ValueError):

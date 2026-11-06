@@ -890,6 +890,10 @@ class AgentNodes:
         if getattr(report, "journal", None) is not None:
             summary = report.journal.summary(report.target)
             journal_summary = summary.as_dict()
+            # R5 / addendum 01: the combined row cannot say which destination took what, so the
+            # split travels with the result.
+            journal_summary["by_destination"] = report.journal.per_destination()
+            journal_summary["next_action"] = report.journal.next_action(report.dry_run)
         duration = (time.perf_counter() - started) * 1000.0
         if getattr(report, "refused", False):
             return {
