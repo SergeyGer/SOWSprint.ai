@@ -27,11 +27,11 @@ contract together with the delivery plan to execute it.
 
 **[📖 Engineering & product wiki →](https://github.com/SergeyGer/SOWSprint.ai/wiki)**
 
-**[▶ Watch it work](docs/media/demo-2.1.mp4)** — 1:46, narrated, from a spoken brief to the
-published plan: the audit, the approval by a second person, the Jira project and its timeline, the
-Notion page, and a retry that sends only what failed. 1920×1080, English subtitles in the
-container and as a sidecar ([`.srt`](docs/media/demo-2.1.en.srt)). The pipeline's thinking time is
-compressed; nothing else is.
+**[▶ Watch it work](docs/media/demo-2.1.mp4)** — 1:40, narrated, from a spoken brief to the
+published plan: the audit, the approval by a second person, the contract itself, the Jira project
+and its timeline, the Notion page, and a retry that sends only what failed. 1920×1080, English
+subtitles in the container and as a sidecar ([`.srt`](docs/media/demo-2.1.en.srt)). The pipeline's
+thinking time is compressed; nothing else is.
 
 <a href="docs/media/demo-2.1.mp4"><img src="docs/media/03-transcribed.png" alt="A brief dictated by voice, transcribed, and the scope extracted from it" width="820"></a>
 
