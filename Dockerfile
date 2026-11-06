@@ -77,6 +77,9 @@ COPY --chown=sowsprint:sowsprint .chainlit/ ./.chainlit/
 COPY --chown=sowsprint:sowsprint public/ ./public/
 COPY --chown=sowsprint:sowsprint chainlit.md app.py ./
 COPY --chown=sowsprint:sowsprint scripts/ ./scripts/
+# The starting brief the interface offers, and the only copy of it: the app reads this
+# file rather than duplicating the text in an environment variable.
+COPY --chown=sowsprint:sowsprint demo/ ./demo/
 COPY --chown=sowsprint:sowsprint pyproject.toml ./
 # Writable locations: rendered deliverables, cached BM25 statistics, the Chainlit
 # runtime cache, and the optional drop-in corpus directory.

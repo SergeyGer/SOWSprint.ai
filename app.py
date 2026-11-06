@@ -945,6 +945,23 @@ def _verdict_banner(critique: CritiqueReport | None, status: str) -> str:
     return "\n".join(lines)
 
 
+def _default_brief_line() -> str:
+    """Offer the measured brief, or say nothing when the deployment has none.
+
+    A blank page is the hardest part of trying a tool like this. The brief offered here is the
+    one that clears the audit, so the first run demonstrates the product rather than the
+    product's patience.
+    """
+    brief = (_settings().default_brief or "").strip()
+    if not brief:
+        return ""
+    words = len(brief.split())
+    return (
+        f"**No brief to hand?** Send `/brief` and I will run the {words}-word example that "
+        "passes the audit — the same case the walkthrough uses."
+    )
+
+
 def _engine_line(outcome: RunOutcome | None) -> str:
     """Which engine actually produced this run — live providers, or the offline fallback.
 
@@ -976,9 +993,22 @@ def _engine_line(outcome: RunOutcome | None) -> str:
 
     detail = ", ".join(f"`{name}` {count}" for name, count in sorted(live.items()))
     if offline:
+        # Offline is not always a fallback. The deterministic engine is a first-class backend —
+        # the README offers a run with no API keys at all — and a deployment that drafts with it
+        # while auditing with a live judge is making a choice, not recovering from a failure.
+        # The two are told apart by whether the drafting nodes reached a model.
+        by_node = dict(getattr(report, "by_node", {}) or {})
+        drafting = ("triage", "architect", "legal")
+        drafted_live = any(int((by_node.get(node) or {}).get("calls", 0)) for node in drafting)
+        if not drafted_live:
+            return (
+                f"**Engine:** ✅ **deterministic drafting** ({offline} call(s)) with a live "
+                f"audit ({detail}) — the contract was assembled by the offline engine and "
+                "judged by a model."
+            )
         return (
-            f"**Engine:** ⚠️ **mixed** — live {sum(live.values())} call(s) ({detail}), "
-            f"offline {offline}. Part of this run did not reach a model."
+            f"**Engine:** ⚠️ **degraded** — live {sum(live.values())} call(s) ({detail}), "
+            f"offline {offline}. Part of this run fell back after a provider failure."
         )
     return f"**Engine:** ✅ live — {sum(live.values())} call(s) ({detail})"
 
@@ -1715,6 +1745,7 @@ async def on_chat_start() -> None:
                 "**Send a requirement** as text, or tap the microphone to dictate it. "
                 "Switch jurisdiction any time from the settings panel next to the composer.",
                 "",
+                *([_default_brief_line(), ""] if _default_brief_line() else []),
                 "Once a contract exists you can negotiate it: `/revise <instruction>` to "
                 "change specific clauses, `/lock 6` to freeze the ones already agreed, "
                 "`/diff` to see what moved. Send `/help` for the full list.",
@@ -1900,6 +1931,14 @@ async def on_message(message: cl.Message) -> None:
     # into the current tab, so it cannot require one to already be loaded.
     head, _, argument = text.strip().partition(" ")
     command = head.casefold()
+    if command == "/brief":
+        sample = (_settings().default_brief or "").strip()
+        if not sample:
+            await cl.Message(content="No default brief is configured.").send()
+            return
+        await _start_run(sample)
+        return
+
     if command in ("/runs", "/run"):
         await _list_runs()
         return

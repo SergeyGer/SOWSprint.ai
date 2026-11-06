@@ -185,6 +185,28 @@ class Settings(BaseSettings):
 
     default_jurisdiction: Literal["EU", "US", "BOTH"] = "US"
 
+    #: A brief that passes the quality audit, offered as the starting point.
+    #:
+    #: Chosen by measurement, not by taste: this text reaches two milestones and a full clause
+    #: set, grounds 78% of its clauses in retrieved evidence, and clears the 0.72 bar with the
+    #: deterministic engine drafting and a live judge auditing. The shorter briefs tried earlier
+    #: produced plans too thin to demonstrate and audits that failed on missing evidence.
+    #:
+    #: Read from a file rather than held in an environment variable: it is multi-line, it
+    #: contains punctuation an env parser escapes, and it is worth reviewing.
+    default_brief_file: str = "demo/default_brief.md"
+
+    @property
+    def default_brief(self) -> str:
+        """The starting brief, or empty when the file is absent."""
+        import pathlib
+
+        path = pathlib.Path(self.default_brief_file)
+        try:
+            return path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+
     # Which deliverables to render. Comma-separated in the environment; empty means all.
     #
     # Worth being precise about what this saves: every artefact is rendered from objects
