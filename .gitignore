@@ -97,3 +97,6 @@ Thumbs.db
 # ---- personal operator notes ------------------------------------------------
 Run_Stop_Project*.docx
 Run_Stop_Project*.doc
+
+# Russian-language working documents stay local; the repository is English-only.
+.local-ru/
