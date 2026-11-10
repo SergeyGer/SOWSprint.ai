@@ -111,8 +111,8 @@ Stated because a security page that only lists strengths is not useful:
 | :-- | :-- |
 | **No TLS termination** | Deploy behind a reverse proxy; the application speaks plain HTTP |
 | **Roles are coarse** | Four roles — author, approver, admin, service. An author cannot approve their own run and an admin must be appointed, but there is no per-project scoping |
-| **No audit log of user actions** | Provider calls are logged; who approved what is not persisted beyond the run report |
-| **In-memory session state** | A restart loses active sessions; there is no database |
+| **The audit trail is per run, not per deployment** | Every decision is stored with its actor, role, revision and timestamp, but there is no deployment-wide view of who did what across runs |
+| **State is a file, not a service** | Runs and decisions live in SQLite by default. A restart keeps them; two hosts cannot share them without the Postgres path |
 | **No rate limiting** | A budget caps spend per session, but nothing caps the number of sessions |
 | **API keys are not scoped** | A machine account can do anything a human can |
 

@@ -438,8 +438,9 @@ people get hurt:
 - **The EU corpus is regulatory text, not precedent clauses.** No public dataset of EU
   contract clause language exists. US commercial clauses come from CUAD; EU material is
   GDPR, the AI Act and guidance, from which clauses are authored rather than retrieved.
-- **No TLS, no role separation, in-memory sessions.** Fine for a LAN pilot, not for a shared
-  deployment. → [Security](https://github.com/SergeyGer/SOWSprint.ai/wiki/Security)
+- **No TLS.** Roles are enforced and runs survive a restart, but the application speaks plain
+  HTTP. Fine on a single host, not for a shared deployment.
+  → [Security](https://github.com/SergeyGer/SOWSprint.ai/wiki/Security)
 
 **[The threat model, and the gaps →](https://github.com/SergeyGer/SOWSprint.ai/wiki/Security)**
 ---
