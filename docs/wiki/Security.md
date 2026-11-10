@@ -109,8 +109,8 @@ Stated because a security page that only lists strengths is not useful:
 
 | Gap | Consequence |
 | :-- | :-- |
-| **No TLS termination** | Deploy behind a reverse proxy. Credentials and contracts cross the LAN in clear text otherwise |
-| **No role-based access control** | Roles are recorded but every authenticated user can do everything, including provisioning |
+| **No TLS termination** | Deploy behind a reverse proxy; the application speaks plain HTTP |
+| **Roles are coarse** | Four roles — author, approver, admin, service. An author cannot approve their own run and an admin must be appointed, but there is no per-project scoping |
 | **No audit log of user actions** | Provider calls are logged; who approved what is not persisted beyond the run report |
 | **In-memory session state** | A restart loses active sessions; there is no database |
 | **No rate limiting** | A budget caps spend per session, but nothing caps the number of sessions |

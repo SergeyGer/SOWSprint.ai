@@ -54,7 +54,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: sowsprint/app:2.0.0
+    image: sowsprint/app:2.1.0
     container_name: sowsprint-app
     restart: "no"
     depends_on:

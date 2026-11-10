@@ -71,6 +71,28 @@ st.set_page_config(
 #: The brief the demo opens with. Not decoration: it is the difference between a visitor
 #: seeing a contract that passed and a contract that failed its own audit.
 #:
+from sowsprint import __version__  # noqa: E402
+
+
+def _build_date() -> str:
+    """When this deployment's code was built, as far as the container can tell.
+
+    A visitor has no way to tell a current deployment from one that stopped redeploying months
+    ago, and this demo is the first thing most of them see. The version alone does not answer
+    it; the date does.
+    """
+    import datetime as _dt
+
+    stamp = os.environ.get("SOWSPRINT_BUILD_DATE", "").strip()
+    if stamp:
+        return stamp
+    try:
+        mtime = Path(__file__).stat().st_mtime
+        return _dt.datetime.fromtimestamp(mtime, _dt.UTC).strftime("%Y-%m-%d")
+    except OSError:
+        return "unknown"
+
+
 #: The offline drafter cites evidence only when a retrieved passage contains one of a clause's
 #: keywords, so a brief that mentions "GDPR-compliant logging" in passing produces clauses with
 #: nothing behind them — the audit then fails the draft on grounding, honestly and to nobody's
@@ -563,5 +585,6 @@ st.caption(
     "human approval gate, contract revision with locked clauses, and per-agent cost "
     "telemetry. "
     "[Repository](https://github.com/SergeyGer/SOWSprint.ai) · "
-    "[Wiki](https://github.com/SergeyGer/SOWSprint.ai/wiki)"
+    "[Wiki](https://github.com/SergeyGer/SOWSprint.ai/wiki) · "
+    f"running {__version__}, pushed {_build_date()}"
 )

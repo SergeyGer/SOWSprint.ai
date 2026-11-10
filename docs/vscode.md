@@ -50,7 +50,7 @@ Verify:
 
 ```bash
 .venv/bin/python -c "import sowsprint; print(sowsprint.__file__)"
-.venv/bin/python -m pytest tests -o addopts= -q      # 483 tests, ~20 s, no credentials needed
+.venv/bin/python -m pytest tests -o addopts= -q      # 626 tests, ~20 s, no credentials needed
 ```
 
 The suite is deliberately credential-free: every subsystem falls back to a local

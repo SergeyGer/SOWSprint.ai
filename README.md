@@ -27,11 +27,13 @@ contract together with the delivery plan to execute it.
 
 **[📖 Engineering & product wiki →](https://github.com/SergeyGer/SOWSprint.ai/wiki)**
 
-**[▶ Watch it work](docs/media/demo-2.1.mp4)** — 1:49, narrated, on live models: a spoken brief,
-the audit, an approval by a second person, the contract on white stock, the Jira project and its
-timeline, the Notion page, and a retry that sends only what failed. 1920×1080, English subtitles
-in the container and as a sidecar ([\.srt](docs/media/demo-2.1.en.srt)). The pipeline's thinking
-time is compressed; nothing else is.
+**[▶ Watch it on YouTube](https://youtu.be/alHU4Lv4Ua4)** — 1:49, narrated, on live models: a
+spoken brief, the audit, an approval by a second person, the contract on white stock, the Jira
+project and its timeline, the Notion page, and a retry that sends only what failed.
+
+The same cut is in the repository ([`docs/media/demo-2.1.mp4`](docs/media/demo-2.1.mp4), English
+subtitles in the container and as a sidecar [`demo-2.1.en.srt`](docs/media/demo-2.1.en.srt)). The
+pipeline's thinking time is compressed; nothing else is.
 
 <a href="docs/media/demo-2.1.mp4"><img src="docs/media/03-transcribed.png" alt="A brief dictated by voice, transcribed, and the scope extracted from it" width="820"></a>
 
@@ -350,7 +352,7 @@ Four things took real engineering, and each is documented rather than asserted:
 | :-- | :-- |
 | **Jurisdiction is enforced in the search engine** | A clause from the wrong regime cannot reach the drafting agent — it fails at query time on both retrieval paths, not in a prompt |
 | **The audit verifies itself** | Claims are cross-checked against the document, severity is calibrated by category, and a verdict that came from a fallback is labelled as unreliable |
-| **It works with no credentials at all** | The deterministic engine runs the entire pipeline, which is why 490 tests need no network and CI needs no secrets |
+| **It works with no credentials at all** | The deterministic engine runs the entire pipeline, which is why 626 tests need no network and CI needs no secrets |
 | **Nothing is autonomous where it matters** | Dry-run is the default, the approval gate lists every planned call, and the report states plainly what was and was not sent |
 
 **[System design and the decisions behind it →](https://github.com/SergeyGer/SOWSprint.ai/wiki/Architecture)**
@@ -363,7 +365,7 @@ it — and it fails the step when its own audit rejects the contract, because pu
 contract the audit failed is worse than stopping.
 
 ```yaml
-- uses: SergeyGer/SOWSprint.ai@v2.0.0
+- uses: SergeyGer/SOWSprint.ai@v2.1.0
   id: sowsprint
   with:
     brief-file: brief.md        # or: brief: "one-paragraph requirement"
@@ -444,9 +446,9 @@ people get hurt:
 
 ## Project
 
-Built with LangGraph, Chainlit, Qdrant and Docker · **490 tests** · MIT licensed
+Built with LangGraph, Chainlit, Qdrant and Docker · **626 tests** · MIT licensed
 
-**[Latest release](https://github.com/SergeyGer/SOWSprint.ai/releases/latest)** — `v2.0.0`, published as `ghcr.io/sergeyger/sowsprint.ai:2.0.0`
+**[Latest release](https://github.com/SergeyGer/SOWSprint.ai/releases/latest)** — `v2.1.0`, published as `ghcr.io/sergeyger/sowsprint.ai:2.1.0`
 
 **[Contributing](CONTRIBUTING.md)** · **[Security policy](SECURITY.md)** · **[Changelog](CHANGELOG.md)** · **[Code of conduct](CODE_OF_CONDUCT.md)**
 

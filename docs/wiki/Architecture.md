@@ -70,7 +70,7 @@ flowchart LR
 
 This is not a demo mode bolted on afterwards. It is the reason:
 
-- **483 tests run with no network and no credentials**, so CI needs no secrets and a
+- **626 tests run with no network and no credentials**, so CI needs no secrets and a
   revoked key cannot break the build
 - The graph, the schemas, the artefacts and the UI are identical either way, so the
   offline path exercises the real code
@@ -163,8 +163,10 @@ input and output is a Pydantic model, so:
 
 ## Deliberate non-goals
 
-- **No database.** Sessions are in-process and checkpointed in memory. Persistence is a
-  roadmap item, not an oversight. → [Roadmap](Roadmap)
+- **No managed database service.** State lives in SQLite by default — runs, revisions,
+  decisions, operations and events — and the checkpointer can target Postgres for a pilot. What
+  is deliberately absent is a *service* to operate: one deployment, one file, no cluster. The
+  Postgres path is supported and tested; running it in production is the open item.
 - **No multi-tenancy.** One deployment serves one organisation. Adding tenancy without
   understanding the compliance boundary would be worse than not having it.
 - **No fine-tuning.** Retrieval and structured output solve the problem; fine-tuning would

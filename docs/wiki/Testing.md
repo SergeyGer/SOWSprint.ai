@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart TB
-    L1["<b>Unit &amp; integration</b><br/>483 tests · no network · no credentials<br/><i>Does the logic behave as specified?</i>"]
+    L1["<b>Unit &amp; integration</b><br/>626 tests · no network · no credentials<br/><i>Does the logic behave as specified?</i>"]
     L2["<b>Protocol</b><br/>socket.io harness · 12 checks<br/><i>Does the server emit what the UI needs?</i>"]
     L3["<b>Browser</b><br/>real Chromium · DOM assertions<br/><i>Does a user actually see it?</i>"]
     L4["<b>End-to-end</b><br/>full engagement · artifacts asserted<br/><i>Does the product work?</i>"]

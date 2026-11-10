@@ -241,7 +241,7 @@ Statements this page cannot honestly make:
 ## How to verify any of this
 
 ```bash
-pytest -q                                    # 490 tests, including the ones named above
+pytest -q                                    # 626 tests, including the ones named above
 pytest tests/test_offline_engine.py -q -k "Grounding or JudgeSanity"
 ruff check src tests app.py
 ```
