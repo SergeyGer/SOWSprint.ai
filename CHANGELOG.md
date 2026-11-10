@@ -9,6 +9,79 @@ the what cannot help anyone decide whether to upgrade.
 
 ---
 
+## 2.1.0 — 2026-11-10
+
+Two release-blocking defects, both of the same shape: the system did something reasonable and
+said nothing, and the absence of a statement was read as success.
+
+**A dry run could write to a live tracker.** `ToolExecutor` never knew its own mode — the flag
+defaulted to `True` while the adapters read settings that said live — so a "validated, nothing
+sent" run created and deleted six real Jira projects and three Notion pages before anyone
+looked. The executor now takes its mode explicitly and refuses to send a live call without a
+publication decision on record.
+
+**A partial batch created a second project on retry.** No record of what had already been sent
+meant a retry re-created everything. Every operation now carries a key stable across attempts;
+the executor reads the journal first, skips what succeeded, and reuses the saved identifier, so
+a retry cannot create a second epic.
+
+### Added
+
+- **Publication policy** (`src/sowsprint/policy.py`) — one decision, made before anything is
+  provisioned: audit passed, not degraded, approved, snapshot matches, not already completed.
+  The snapshot hashes the contract, the backlog, the plan and the destinations, with volatile
+  fields excluded, so approval covers an exact revision rather than "whatever is current".
+- **Persistence** (`src/sowsprint/storage/`) — runs, revisions, decisions, operations and
+  events in SQLite, portable to Postgres; the checkpointer is chosen from a URL. A run is
+  persisted when it starts, so it is listable and reopenable before it finishes.
+- **Return to a run by identifier** — `/runs` lists them newest first and `/open <run_id>`
+  reopens one, including the approval card, with the actor who reopened it recorded.
+- **Operation journal** (`src/sowsprint/tools/journal.py`) — one row per attempted call, with
+  created / existing / skipped / uncertain / failed outcomes, per-destination counts, and a
+  next action computed from them.
+- **Role enforcement** (`src/sowsprint/security/roles.py`) — author, approver, admin, service.
+  An author cannot approve their own run; admin is appointed.
+- **Separated Jira and Notion results** — the result card reports each destination on its own
+  row, with links and a next action, instead of one aggregate count that hides a failure.
+- **Google Gemini** as a provider, alongside Anthropic, OpenAI and the offline engine.
+- **Engine line on every result** — which providers actually answered, and how many calls each
+  made. Two recordings were made of runs that looked like failing audits and were in fact a
+  401: every node retried, fell back, and completed silently.
+- **`demo/default_brief.md`** — the starting brief the interface offers through `/brief`. It was
+  chosen by measurement, not by writing: richer and longer briefs did not raise the score, and a
+  wider retrieval window scored *worse*.
+
+### Changed
+
+- **The approval gate cannot be bypassed.** `after_plan_tools` routed straight to provisioning
+  when `auto_deploy` was set, and `after_critic` did the same when the budget ran out, so a run
+  could publish without a decision. Both paths now go through the gate in live mode.
+- **The demo runs the current pipeline** and offers the same brief `/brief` does; its sample was
+  verified byte-identical to `demo/default_brief.md`.
+- **Documentation reconciled with the code.** The wiki claimed sessions were memory-only, that
+  roles were recorded but unenforced, and that there was no database. All three were true in
+  2.0.0 and none was true in 2.1.0; the roadmap entries were split into what shipped and what
+  remains.
+
+### Fixed
+
+- **The deterministic drafter put the brief's own heading into the contract.** A goal came back
+  from triage as `# Customer Analytics Platform — Nordwind Logistics The work is organised
+  into…` and appeared verbatim in the executive summary and in clause 2 — in the document a
+  client reads.
+- **`build_default_registry()` read global settings**, so a run constructed with dry-run
+  settings still wrote to live Jira.
+- **The reviewer was appointed too late** to approve, so a correctly authorised approver was
+  refused on their own run.
+- **`member` mapped to the service role** rather than author, which denied approval to ordinary
+  accounts.
+- **`save_run` refreshed `updated_at` on every write**, which made the run list reorder itself
+  for reasons unrelated to the run.
+- **CI hung for five minutes** installing ffmpeg in the documentation job; the video checks now
+  skip with a note when `ffprobe` is absent.
+
+---
+
 ## 2.0.0 — 2026-10-24
 
 The first tagged release. `2.0.0` is the version the repository already declared in

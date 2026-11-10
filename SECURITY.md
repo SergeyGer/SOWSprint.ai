@@ -68,5 +68,5 @@ use the private channel above.
 
 ## Supported versions
 
-The project is pre-1.0 in everything but its image tag (`2.0.0`). Only the tip of `main`
+The project is pre-1.0 in everything but its image tag (`2.1.0`). Only the tip of `main`
 receives fixes; there are no maintained release branches to back-port to.

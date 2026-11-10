@@ -4,26 +4,29 @@ Ordered by what unblocks adoption, not by what is most interesting to build.
 
 ```mermaid
 flowchart TB
-    subgraph now["Shipped"]
+    subgraph now["Shipped in 2.1"]
         N1["Offline-first multi-agent pipeline"]
         N2["Jurisdiction-aware hybrid RAG"]
         N3["Self-verifying audit"]
         N4["Live Jira &amp; Notion provisioning"]
         N5["Authentication"]
         N6["Cost observability"]
+        N7["Approval bound to a revision"]
+        N8["Persistent runs, reopen by id, journalled retry"]
+        N9["Role-based access control"]
     end
 
     subgraph next["Next — unblocks procurement"]
-        P1["<b>On-premise LLM profile</b><br/>garanteed data boundary"]
-        P2["<b>Evaluation harness</b><br/>deterministic checker measured"]
-        P3["TLS + RBAC"]
+        P1["<b>On-premise LLM profile</b><br/>guaranteed data boundary"]
+        P2["<b>Cloud judge, measured</b><br/>published detection rate"]
     end
 
     subgraph later["Later — depth"]
-        L1["Persistent sessions"]
-        L2["Clause-level revision at scale"]
-        L3["Negotiation playbooks"]
-        L4["Multi-tenant"]
+        L1["TLS termination"]
+        L2["Postgres pilot in production"]
+        L3["Clause-level revision at scale"]
+        L4["Negotiation playbooks"]
+        L5["Multi-tenant"]
     end
 
     now --> next --> later
@@ -64,20 +67,27 @@ The synthetic-defect corpus is cheap to build: mechanical injections (remove a m
 clause, corrupt a citation id, break the payment arithmetic) need no legal expertise and
 produce an unambiguous ground truth.
 
-### 3. TLS termination and role-based access control
-The application serves credentials and contracts over plain HTTP and treats every
-authenticated user identically. Both are acceptable for a LAN pilot and neither is
-acceptable for a shared deployment. Roles are already recorded in the account model; they
-are simply not enforced.
+## Later
+
+### 3. TLS termination
+**Role-based access control shipped in 2.1.0.** Four roles — author, approver, admin and
+service — and two rules that matter: an author can never approve their own run, and admin is
+appointed rather than assumed. The decision is recorded against the exact revision it covers.
+
+What remains is transport. The application serves credentials and contracts over plain HTTP,
+which is acceptable on a single host and not acceptable anywhere else. Terminating TLS at a
+reverse proxy is a deployment recipe; shipping it as a supported profile is the work.
 
 ---
 
-## Later
+### 4. Postgres in production
+**Persistence shipped in 2.1.0.** Runs, revisions, decisions, operations and events are stored
+in SQLite, the checkpointer is pluggable, and a run can be reopened by its identifier after a
+restart. Retry after a partial failure reads an operation journal, so a second attempt does
+not create a second epic.
 
-### 4. Persistent sessions
-Sessions live in memory, so a restart loses them. Moving the LangGraph checkpointer to
-Postgres would give resumable engagements, an audit trail of who approved what, and a
-foundation for multi-user deployments.
+What remains is operating it at scale: accepting the Postgres pilot on a real deployment,
+with backup and restore rehearsed rather than described.
 
 ### 5. Clause-level revision at scale
 Locking and targeted edits work. What is missing is a version history across revisions, so
