@@ -10,7 +10,7 @@ langgraph-checkpoint-sqlite>=2.0.0,<4.0.0
 # The pilot profile. Absent from a clean install, which is the addendum's finding.
 langgraph-checkpoint-postgres>=2.0.0,<4.0.0
 psycopg[binary]>=3.2,<4.0
-langchain-core>=0.3.25,<1.8
+langchain-core>=0.3.25,<1.9
 langchain-text-splitters>=0.3.2,<1.2
 
 # Web UI (mobile-first chat + native audio capture)
